@@ -1,0 +1,6 @@
+{
+  "access_token": "0d116ac22c59f205abbb4...",
+  "token_type": "bearer",
+  "scope": "read_content,write_content,read_products,write_products,write_scripts",
+  "user_id": 7333786
+}

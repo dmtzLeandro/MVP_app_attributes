@@ -1,0 +1,102 @@
+#######################################
+# SECRETS / TOKENS (CRÍTICO)
+#######################################
+# Env files (raíz y subcarpetas)
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+# OAuth tokens (bloquear reales)
+**/token.json
+**/tokens.json
+
+# Permitir ejemplos
+!**/tokenejemplo.json
+!**/token_ejemplo.json
+!**/token-example.json
+
+# Archivos específicos detectados en tu repo
+**/.env_TN_back
+
+# Credenciales / llaves (por seguridad)
+credentials*.json
+**/credentials*.json
+service_account*.json
+**/service_account*.json
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+
+# Configs locales típicas
+secrets.*
+*.secret.*
+*.private.*
+config.local.*
+settings.local.*
+
+#######################################
+# PYTHON / FASTAPI
+#######################################
+__pycache__/
+**/__pycache__/
+*.py[cod]
+**/*.pyc
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.log
+
+# Virtual envs
+.venv/
+venv/
+env/
+ENV/
+
+#######################################
+# NODE / REACT / VITE
+#######################################
+node_modules/
+**/node_modules/
+dist/
+build/
+.vite/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+#######################################
+# DB / DATA LOCAL / TEMP
+#######################################
+*.sqlite
+*.sqlite3
+*.db
+*.bak
+*.dump
+data/
+storage/
+uploads/
+tmp/
+temp/
+
+#######################################
+# IDE / OS
+#######################################
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
