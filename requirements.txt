@@ -13,3 +13,5 @@ python-dotenv==1.0.1
 
 # optional
 redis==5.2.1
+
+cryptography>=42.0.0

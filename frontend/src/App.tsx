@@ -1,25 +1,68 @@
-import { Link, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes } from "react-router-dom";
+import { isAuthed } from "./api/client";
+
 import Dashboard from "./pages/dashboard";
-import Products from "./pages/products";
-import ProductEditor from "./pages/productEditor";
 import Preview from "./pages/preview";
+import ProductEditor from "./pages/productEditor";
+import Products from "./pages/products";
+import LoginPage from "./pages/login";
+
+function PrivateRoute({ children }: { children: JSX.Element }) {
+  if (!isAuthed()) return <Navigate to="/login" replace />;
+  return children;
+}
 
 export default function App() {
   return (
-    <div>
-      <nav style={{ padding: 12, borderBottom: "1px solid #ddd", display: "flex", gap: 12 }}>
-        <Link to="/dashboard">Dashboard</Link>
-        <Link to="/productos">Productos</Link>
-        <Link to="/preview">Preview</Link>
-      </nav>
+    <Routes>
+      <Route path="/login" element={<LoginPage />} />
 
-      <Routes>
-        <Route path="/" element={<Dashboard />} />
-        <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/productos" element={<Products />} />
-        <Route path="/productos/:id" element={<ProductEditor />} />
-        <Route path="/preview" element={<Preview />} />
-      </Routes>
-    </div>
+      <Route
+        path="/"
+        element={
+          <PrivateRoute>
+            <Navigate to="/productos" replace />
+          </PrivateRoute>
+        }
+      />
+
+      <Route
+        path="/dashboard"
+        element={
+          <PrivateRoute>
+            <Dashboard />
+          </PrivateRoute>
+        }
+      />
+
+      <Route
+        path="/productos"
+        element={
+          <PrivateRoute>
+            <Products />
+          </PrivateRoute>
+        }
+      />
+
+      <Route
+        path="/productos/:id"
+        element={
+          <PrivateRoute>
+            <ProductEditor />
+          </PrivateRoute>
+        }
+      />
+
+      <Route
+        path="/preview"
+        element={
+          <PrivateRoute>
+            <Preview />
+          </PrivateRoute>
+        }
+      />
+
+      <Route path="*" element={<Navigate to="/productos" replace />} />
+    </Routes>
   );
 }

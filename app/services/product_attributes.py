@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import logging
 from sqlalchemy.orm import Session
 
 from app.db.models.product_attribute_value import ProductAttributeValue
 
+
+logger = logging.getLogger("app.attributes")
 
 MVP_KEYS = ("ancho_cm", "composicion")
 
@@ -120,6 +123,7 @@ def batch_upsert(
     """
     inserted = updated = deleted = 0
     product_ids_in_order: list[str] = []
+    received = len(items)
 
     for it in items:
         pid = it["product_id"]
@@ -157,6 +161,18 @@ def batch_upsert(
     items_out = [
         read_attrs_out(store_id, pid, attrs_map) for pid in product_ids_in_order
     ]
+
+    logger.info(
+        "batch_upsert",
+        extra={
+            "store_id": store_id,
+            "received": received,
+            "inserted": inserted,
+            "updated": updated,
+            "deleted": deleted,
+            "missing_products": max(0, received - len(product_ids_in_order)),
+        },
+    )
 
     return {
         "inserted": inserted,
