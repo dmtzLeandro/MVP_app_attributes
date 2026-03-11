@@ -1,8 +1,11 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { apiLogin, isAuthed } from "../api/client";
 import styles from "./login.module.css";
 
 export default function LoginPage() {
+  const navigate = useNavigate();
+
   const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("");
   const [remember, setRemember] = useState(true);
@@ -12,9 +15,9 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (isAuthed()) {
-      window.location.href = "/productos";
+      navigate("/productos", { replace: true });
     }
-  }, []);
+  }, [navigate]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -23,7 +26,7 @@ export default function LoginPage() {
 
     try {
       await apiLogin({ username, password }, remember);
-      window.location.href = "/productos";
+      navigate("/productos", { replace: true });
     } catch (err: any) {
       setError(err?.message || "No se pudo iniciar sesión.");
     } finally {
