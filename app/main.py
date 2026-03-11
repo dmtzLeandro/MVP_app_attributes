@@ -45,6 +45,7 @@ app = FastAPI(
 origins = [
     "http://localhost:5174",
     "http://127.0.0.1:5174",
+    "https://tn-app-frontend-demo.onrender.com",
 ]
 
 app.add_middleware(
