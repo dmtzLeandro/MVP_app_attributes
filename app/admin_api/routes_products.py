@@ -110,7 +110,7 @@ def seed_attribute_definitions(
         ("composicion", "Composición", "string"),
     ]
 
-    with db.begin():
+    try:
         for key, label, value_type in defs:
             row = db.get(AttributeDefinition, key)
             if row is None:
@@ -118,6 +118,11 @@ def seed_attribute_definitions(
             else:
                 row.label = label
                 row.value_type = value_type
+
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
 
     return {"ok": True, "seeded": [d[0] for d in defs]}
 
@@ -147,7 +152,7 @@ def bootstrap_store_from_token(
     store_id = str(token["user_id"])
     access_token_plain = token["access_token"]
 
-    with db.begin():
+    try:
         obj = db.get(Store, store_id)
         if obj is None:
             obj = Store(store_id=store_id, status="installed")
@@ -156,6 +161,11 @@ def bootstrap_store_from_token(
         else:
             set_store_access_token(db, obj, access_token_plain)
             obj.status = "installed"
+
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
 
     return {"ok": True, "store_id": store_id}
 
@@ -376,7 +386,7 @@ def upsert_attributes_endpoint(
             },
         )
 
-    with db.begin():
+    try:
         upsert_one(
             db,
             store_id=store_id,
@@ -391,6 +401,11 @@ def upsert_attributes_endpoint(
             key="composicion",
             value=payload.composicion,
         )
+
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
 
     invalidate_store(store_id)
     return {"ok": True}
@@ -476,10 +491,14 @@ def batch_product_attributes(
             for it in items_in
         ]
 
-        with db.begin():
+        try:
             out_data = batch_upsert(
                 db, store_id=store_id, items=items_payload, existing_ids=existing_ids
             )
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
 
         response_payload = {
             "ok": True,
