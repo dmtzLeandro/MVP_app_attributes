@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { isAuthed } from "./api/client";
 
@@ -7,7 +8,7 @@ import ProductEditor from "./pages/productEditor";
 import Products from "./pages/products";
 import LoginPage from "./pages/login";
 
-function PrivateRoute({ children }: { children: JSX.Element }) {
+function PrivateRoute({ children }: { children: ReactNode }) {
   if (!isAuthed()) return <Navigate to="/login" replace />;
   return children;
 }

@@ -1,10 +1,16 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import { fixMojibake, getProductAttributes, updateProductAttributes } from "../api/client";
+import {
+  fixMojibake,
+  getProductAttributes,
+  getStoreId,
+  updateProductAttributes,
+} from "../api/client";
 
 export default function ProductEditor() {
   const { id } = useParams();
   const productId = id ?? "";
+  const storeId = getStoreId();
 
   const [loading, setLoading] = useState(true);
   const [ancho, setAncho] = useState<string>("");
@@ -17,7 +23,7 @@ export default function ProductEditor() {
       try {
         setLoading(true);
         setErr("");
-        const a = await getProductAttributes(productId);
+        const a = await getProductAttributes(productId, storeId);
         setAncho(a.ancho_cm === null ? "" : String(a.ancho_cm));
         setComp(a.composicion ?? "");
       } catch (e: any) {
@@ -26,7 +32,7 @@ export default function ProductEditor() {
         setLoading(false);
       }
     })();
-  }, [productId]);
+  }, [productId, storeId]);
 
   async function onSave() {
     try {
@@ -39,7 +45,7 @@ export default function ProductEditor() {
         return;
       }
 
-      await updateProductAttributes(productId, {
+      await updateProductAttributes(productId, storeId, {
         ancho_cm: anchoVal,
         composicion: comp,
       });
@@ -54,7 +60,10 @@ export default function ProductEditor() {
     try {
       setMsg("");
       setErr("");
-      await updateProductAttributes(productId, { ancho_cm: null, composicion: "" });
+      await updateProductAttributes(productId, storeId, {
+        ancho_cm: null,
+        composicion: "",
+      });
       setAncho("");
       setComp("");
       setMsg("Borrado ✅");
