@@ -42,28 +42,50 @@ def get_attrs_map(
     return {(r.product_id, r.attribute_key): r.value for r in rows}
 
 
+def get_attr_rows_map(
+    db: Session, store_id: str, product_ids: list[str]
+) -> dict[tuple[str, str], ProductAttributeValue]:
+    """
+    1 query: (product_id, attribute_key) -> ORM row
+    Útil para upsert batch sin reconsultas por item y sin inserts ciegos.
+    """
+    if not product_ids:
+        return {}
+
+    rows = (
+        db.query(ProductAttributeValue)
+        .filter(
+            ProductAttributeValue.store_id == store_id,
+            ProductAttributeValue.product_id.in_(product_ids),
+            ProductAttributeValue.attribute_key.in_(list(MVP_KEYS)),
+        )
+        .all()
+    )
+    return {(r.product_id, r.attribute_key): r for r in rows}
+
+
 def upsert_one(
     db: Session, store_id: str, product_id: str, key: str, value: str | None
 ) -> str:
     """
-    Replica EXACTAMENTE la semántica existente:
+    Semántica:
     - None o "" => delete
     - else => upsert
     Devuelve: "deleted" | "inserted" | "updated" | "noop"
     """
-    if value is None or value == "":
-        deleted = (
-            db.query(ProductAttributeValue)
-            .filter_by(store_id=store_id, product_id=product_id, attribute_key=key)
-            .delete()
-        )
-        return "deleted" if deleted else "noop"
-
     row = (
         db.query(ProductAttributeValue)
         .filter_by(store_id=store_id, product_id=product_id, attribute_key=key)
         .one_or_none()
     )
+
+    if value is None or value == "":
+        if row is None:
+            return "noop"
+        db.delete(row)
+        return "deleted"
+
+    value_str = str(value)
 
     if row is None:
         db.add(
@@ -71,13 +93,13 @@ def upsert_one(
                 store_id=store_id,
                 product_id=product_id,
                 attribute_key=key,
-                value=str(value),
+                value=value_str,
             )
         )
         return "inserted"
 
-    if row.value != str(value):
-        row.value = str(value)
+    if row.value != value_str:
+        row.value = value_str
         return "updated"
 
     return "noop"
@@ -125,36 +147,63 @@ def batch_upsert(
     product_ids_in_order: list[str] = []
     received = len(items)
 
+    valid_items: list[dict] = []
     for it in items:
         pid = it["product_id"]
         if pid not in existing_ids:
             continue
-
+        valid_items.append(it)
         if pid not in product_ids_in_order:
             product_ids_in_order.append(pid)
 
-        r1 = upsert_one(
-            db,
-            store_id=store_id,
-            product_id=pid,
-            key="ancho_cm",
-            value=str(it["ancho_cm"]) if it.get("ancho_cm") is not None else None,
-        )
-        r2 = upsert_one(
-            db,
-            store_id=store_id,
-            product_id=pid,
-            key="composicion",
-            value=it.get("composicion"),
-        )
+    # Precargar rows existentes una sola vez para evitar inserts ciegos y conflictos.
+    rows_map = get_attr_rows_map(
+        db, store_id=store_id, product_ids=product_ids_in_order
+    )
 
-        for r in (r1, r2):
-            if r == "inserted":
+    for it in valid_items:
+        pid = it["product_id"]
+
+        incoming_values = {
+            "ancho_cm": str(it["ancho_cm"]) if it.get("ancho_cm") is not None else None,
+            "composicion": it.get("composicion"),
+        }
+
+        for key in MVP_KEYS:
+            incoming = incoming_values[key]
+            map_key = (pid, key)
+            row = rows_map.get(map_key)
+
+            # Delete si viene vacío/null
+            if incoming is None or incoming == "":
+                if row is not None:
+                    db.delete(row)
+                    deleted += 1
+                    rows_map.pop(map_key, None)
+                continue
+
+            incoming_str = str(incoming)
+
+            # Insert si no existe
+            if row is None:
+                new_row = ProductAttributeValue(
+                    store_id=store_id,
+                    product_id=pid,
+                    attribute_key=key,
+                    value=incoming_str,
+                )
+                db.add(new_row)
+                rows_map[map_key] = new_row
                 inserted += 1
-            elif r == "updated":
+                continue
+
+            # Update si cambió
+            if row.value != incoming_str:
+                row.value = incoming_str
                 updated += 1
-            elif r == "deleted":
-                deleted += 1
+
+    # Flush explícito para detectar conflictos acá y no recién en commit.
+    db.flush()
 
     # read-back en 1 query
     attrs_map = get_attrs_map(db, store_id=store_id, product_ids=product_ids_in_order)
