@@ -97,7 +97,9 @@ tmp/
 temp/
 var/
 **/var/
-
+!app/storage/
+!app/storage/alembic/
+!app/storage/alembic/**
 #######################################
 # DOCKER / DEPLOY LOCAL
 #######################################
