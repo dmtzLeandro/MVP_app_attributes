@@ -12,6 +12,7 @@ from app.admin_api.routes_auth import router as admin_auth_router
 from app.admin_api.routes_import_export import router as admin_csv_router
 from app.admin_api.routes_jobs import router as admin_jobs_router
 from app.admin_api.routes_products import router as admin_products_router
+from app.core.config import settings
 from app.core.errors import (
     build_error_response,
     integrity_details,
@@ -31,7 +32,15 @@ from app.tiendanube_connector.oauth import build_authorize_url, exchange_code_fo
 configure_logging()
 logger = logging.getLogger("app.main")
 
-app = FastAPI(title="TN Materiales MVP", version="0.1.0")
+is_production = settings.APP_ENV.lower() == "production"
+
+app = FastAPI(
+    title="TN Materiales MVP",
+    version="0.1.0",
+    docs_url=None if is_production else "/docs",
+    redoc_url=None if is_production else "/redoc",
+    openapi_url=None if is_production else "/openapi.json",
+)
 
 origins = [
     "http://localhost:5174",
