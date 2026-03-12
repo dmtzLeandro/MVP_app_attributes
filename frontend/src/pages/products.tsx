@@ -186,7 +186,7 @@ export default function ProductsPage() {
     const idsToLoad = pageProductIds.filter((pid) => !(pid in attrs));
     if (idsToLoad.length === 0) return;
     loadAttrsForIds(idsToLoad);
-  }, [pageProductIdsKey]);
+  }, [pageProductIdsKey, attrs]);
 
   const pendingCount = useMemo(() => {
     let count = 0;
@@ -423,20 +423,20 @@ export default function ProductsPage() {
           </div>
         </div>
 
-        <div className={styles.toolbar}>
+        <div className={styles.filtersRow}>
           <div className={styles.searchWrap}>
             <input
-              className={styles.search}
-              placeholder="Buscar por título o ID"
+              className={styles.searchInput}
               value={q}
               onChange={(e) => {
                 setQ(e.target.value);
                 setPage(1);
               }}
+              placeholder="Buscar por título / id…"
             />
           </div>
 
-          <label className={styles.checkboxRow}>
+          <label className={styles.checkboxLabel}>
             <input
               type="checkbox"
               checked={onlyMissing}
@@ -445,116 +445,138 @@ export default function ProductsPage() {
                 setPage(1);
               }}
             />
-            Solo faltantes
+            <span>Solo faltantes</span>
           </label>
-        </div>
 
-        {err ? <div className={styles.errorBox}>{err}</div> : null}
-        {toast ? <div className={styles.toast}>{toast}</div> : null}
-
-        <div className={styles.metaRow}>
-          <div className={styles.meta}>
-            {loading
-              ? "Cargando productos..."
-              : `${filtered.length} resultado(s) • página ${safePage} de ${totalPages}`}
+          <div className={styles.resultsInfo}>
+            {filtered.length} resultados — página {safePage}/{totalPages}
           </div>
 
-          <label className={styles.checkboxRow}>
-            <input
-              type="checkbox"
-              checked={allSelectedOnPage}
-              onChange={(e) => selectAllOnPage(e.target.checked)}
-            />
-            Seleccionar página
-          </label>
+          <div
+            className={`${styles.loadingInfo} ${
+              loadingAttrs ? styles.loadingInfoVisible : ""
+            }`}
+            aria-live="polite"
+          >
+            Cargando atributos…
+          </div>
         </div>
 
-        <div className={styles.tableWrap}>
+        {toast && <div className={styles.toast}>{toast}</div>}
+
+        {err && <pre className={styles.errorBox}>{err}</pre>}
+
+        <div className={styles.tableCard}>
           <table className={styles.table}>
+            <colgroup>
+              <col className={styles.colCheck} />
+              <col className={styles.colProduct} />
+              <col className={styles.colAncho} />
+              <col className={styles.colComp} />
+              <col className={styles.colStatus} />
+            </colgroup>
+
             <thead>
               <tr>
-                <th></th>
-                <th>Imagen</th>
-                <th>ID</th>
-                <th>Título</th>
-                <th>Ancho</th>
-                <th>Composición</th>
-                <th>Estado</th>
+                <th className={styles.th}></th>
+                <th className={styles.th}>Producto</th>
+                <th className={styles.th}>Ancho (cm)</th>
+                <th className={styles.th}>Composición</th>
+                <th className={styles.th}>Estado</th>
               </tr>
             </thead>
 
             <tbody>
+              <tr className={styles.selectRow}>
+                <td className={styles.tdCheck}>
+                  <input
+                    type="checkbox"
+                    checked={allSelectedOnPage}
+                    onChange={(e) => selectAllOnPage(e.target.checked)}
+                  />
+                </td>
+                <td className={styles.selectPageText} colSpan={4}>
+                  Seleccionar página
+                </td>
+              </tr>
+
               {loading ? (
                 <tr>
-                  <td colSpan={7} className={styles.emptyRow}>
-                    Cargando...
+                  <td colSpan={5} className={styles.emptyState}>
+                    Cargando productos…
                   </td>
                 </tr>
               ) : pageItems.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className={styles.emptyRow}>
-                    No hay productos.
+                  <td colSpan={5} className={styles.emptyState}>
+                    No se encontraron productos con ese criterio.
                   </td>
                 </tr>
               ) : (
                 pageItems.map((p) => {
                   const state = getFinalValues(p.product_id, attrs, draft);
-                  const selectedRow = selected.has(p.product_id);
 
                   return (
-                    <tr
-                      key={p.product_id}
-                      className={selectedRow ? styles.rowSelected : undefined}
-                    >
-                      <td>
+                    <tr key={p.product_id} className={styles.row}>
+                      <td className={styles.tdCheck}>
                         <input
                           type="checkbox"
-                          checked={selectedRow}
+                          checked={selected.has(p.product_id)}
                           onChange={() => toggleSelect(p.product_id)}
                         />
                       </td>
 
-                      <td>
-                        {p.thumbnail_url ? (
-                          <img
-                            src={p.thumbnail_url}
-                            alt={fixMojibake(p.title)}
-                            className={styles.thumb}
+                      <td className={styles.td}>
+                        <div className={styles.productCell}>
+                          <Thumb
+                            url={p.thumbnail_url ?? null}
+                            title={fixMojibake(p.title)}
                           />
-                        ) : (
-                          <div className={styles.thumbPlaceholder}>—</div>
-                        )}
+
+                          <div className={styles.productText}>
+                            <div className={styles.productTitle}>
+                              {fixMojibake(p.title)}
+                            </div>
+                            <div className={styles.productId}>
+                              {p.product_id}
+                            </div>
+                          </div>
+                        </div>
                       </td>
 
-                      <td className={styles.idCell}>{p.product_id}</td>
-                      <td className={styles.titleCell}>{fixMojibake(p.title)}</td>
+                      <td className={styles.td}>
+                        <div className={styles.fieldSlot}>
+                          <InlineNumber
+                            value={state.finalAncho}
+                            placeholder={attrs[p.product_id] ? "—" : "…"}
+                            onCommit={(raw) =>
+                              setDraftValue(p.product_id, {
+                                ancho_cm: clampNumberOrNull(raw),
+                              })
+                            }
+                          />
+                        </div>
+                      </td>
 
-                      <td>
-                        <InlineNumberEditor
-                          value={state.finalAncho}
-                          onSave={(next) =>
-                            setDraftValue(p.product_id, { ancho_cm: next })
-                          }
+                      <td className={styles.td}>
+                        <div className={styles.fieldSlot}>
+                          <InlineText
+                            value={state.finalComp}
+                            placeholder={attrs[p.product_id] ? "—" : "…"}
+                            onCommit={(raw) =>
+                              setDraftValue(p.product_id, {
+                                composicion: normTextOrNull(raw),
+                              })
+                            }
+                          />
+                        </div>
+                      </td>
+
+                      <td className={styles.td}>
+                        <StatusPill
+                          missing={state.missing}
+                          changed={state.changed}
                         />
-                      </td>
-
-                      <td>
-                        <InlineTextEditor
-                          value={state.finalComp}
-                          onSave={(next) =>
-                            setDraftValue(p.product_id, { composicion: next })
-                          }
-                        />
-                      </td>
-
-                      <td>
-                        {state.changed ? (
-                          <span className={styles.badgeWarning}>Pendiente</span>
-                        ) : state.missing ? (
-                          <span className={styles.badgeDanger}>Faltante</span>
-                        ) : (
-                          <span className={styles.badgeOk}>OK</span>
-                        )}
                       </td>
                     </tr>
                   );
@@ -566,139 +588,213 @@ export default function ProductsPage() {
 
         <div className={styles.pagination}>
           <button
-            className={styles.ghostButton}
-            disabled={safePage <= 1}
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            className={styles.pageButton}
+            disabled={safePage === 1}
+            onClick={() => setPage((p) => p - 1)}
           >
             Anterior
           </button>
 
-          <span className={styles.pageIndicator}>
-            Página {safePage} / {totalPages}
-          </span>
-
           <button
-            className={styles.ghostButton}
-            disabled={safePage >= totalPages}
-            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            className={styles.pageButton}
+            disabled={safePage === totalPages}
+            onClick={() => setPage((p) => p + 1)}
           >
             Siguiente
           </button>
         </div>
+
+        {bulkOpen && (
+          <BulkModal
+            count={selected.size}
+            onClose={() => setBulkOpen(false)}
+            onApply={applyBulk}
+          />
+        )}
+
+        {csvOpen && (
+          <CsvImportModal
+            pendingCount={pendingCount}
+            importing={importingCsv}
+            onClose={() => {
+              if (!importingCsv) setCsvOpen(false);
+            }}
+            onImported={async (file) => {
+              const result = await handleImportCsv(file);
+
+              setCsvOpen(false);
+
+              const missingCount = result.missing_products.length;
+              if (missingCount > 0) {
+                showToast(
+                  `Importación OK • procesadas ${result.rows_processed} fila(s). ${missingCount} producto(s) no existían y se ignoraron.`,
+                );
+              } else {
+                showToast(
+                  `Importación OK • procesadas ${result.rows_processed} fila(s).`,
+                );
+              }
+            }}
+          />
+        )}
       </div>
-
-      {bulkOpen ? (
-        <BulkModal
-          count={selected.size}
-          onClose={() => setBulkOpen(false)}
-          onApply={applyBulk}
-        />
-      ) : null}
-
-      {csvOpen ? (
-        <CsvImportModal
-          loading={importingCsv}
-          onClose={() => setCsvOpen(false)}
-          onImport={handleImportCsv}
-        />
-      ) : null}
-
-      {loadingAttrs ? <div className={styles.loadingBar}>Cargando atributos…</div> : null}
     </div>
   );
 }
 
-function InlineNumberEditor({
-  value,
-  onSave,
-}: {
-  value: number | null;
-  onSave: (next: number | null) => void;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [text, setText] = useState(value == null ? "" : String(value));
+function Thumb({ url, title }: { url?: string | null; title: string }) {
+  const initials = (title || "P").trim().slice(0, 1).toUpperCase();
+  const [failed, setFailed] = useState(false);
 
-  useEffect(() => {
-    setText(value == null ? "" : String(value));
-  }, [value]);
-
-  function commit() {
-    onSave(clampNumberOrNull(text));
-    setEditing(false);
-  }
-
-  if (editing) {
+  if (!url || failed) {
     return (
-      <div className={styles.inlineEditor}>
-        <input
-          autoFocus
-          className={styles.inlineInput}
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onBlur={commit}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") commit();
-            if (e.key === "Escape") {
-              setText(value == null ? "" : String(value));
-              setEditing(false);
-            }
-          }}
-        />
+      <div className={styles.thumbFallback} aria-hidden="true">
+        {initials}
       </div>
     );
   }
 
   return (
-    <button className={styles.inlineButton} onClick={() => setEditing(true)}>
-      {value == null ? "—" : value}
-    </button>
+    <img
+      src={url}
+      alt={title}
+      onError={() => setFailed(true)}
+      className={styles.thumb}
+      loading="lazy"
+      decoding="async"
+    />
   );
 }
 
-function InlineTextEditor({
-  value,
-  onSave,
+function StatusPill({
+  missing,
+  changed,
 }: {
-  value: string | null;
-  onSave: (next: string | null) => void;
+  missing: boolean;
+  changed: boolean;
 }) {
-  const [editing, setEditing] = useState(false);
-  const [text, setText] = useState(value ?? "");
+  let toneClass = styles.statusOk;
+  let text = "OK";
 
-  useEffect(() => {
-    setText(value ?? "");
-  }, [value]);
-
-  function commit() {
-    onSave(normTextOrNull(text));
-    setEditing(false);
+  if (missing) {
+    toneClass = styles.statusMissing;
+    text = "Faltante";
   }
 
-  if (editing) {
+  if (changed) {
+    toneClass = styles.statusPending;
+    text = missing ? "Faltante + pendiente" : "Pendiente";
+  }
+
+  return <span className={`${styles.statusPill} ${toneClass}`}>{text}</span>;
+}
+
+function InlineText({
+  value,
+  placeholder,
+  onCommit,
+}: {
+  value: string | null;
+  placeholder: string;
+  onCommit: (raw: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [local, setLocal] = useState(value ?? "");
+
+  useEffect(() => {
+    if (!editing) setLocal(value ?? "");
+  }, [value, editing]);
+
+  if (!editing) {
     return (
-      <div className={styles.inlineEditor}>
-        <input
-          autoFocus
-          className={styles.inlineInput}
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onBlur={commit}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") commit();
-            if (e.key === "Escape") {
-              setText(value ?? "");
-              setEditing(false);
-            }
-          }}
-        />
+      <div
+        className={`${styles.inlineField} ${styles.inlineDisplay} ${
+          !value ? styles.inlinePlaceholder : ""
+        }`}
+        onMouseDown={(e) => {
+          e.preventDefault();
+          setEditing(true);
+        }}
+        title="Click para editar"
+      >
+        {value ?? placeholder}
       </div>
     );
   }
 
   return (
-    <button className={styles.inlineButton} onClick={() => setEditing(true)}>
-      {value || "—"}
-    </button>
+    <input
+      autoFocus
+      value={local}
+      onChange={(e) => setLocal(e.target.value)}
+      onBlur={() => {
+        setEditing(false);
+        onCommit(local);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+        if (e.key === "Escape") {
+          setEditing(false);
+          setLocal(value ?? "");
+        }
+      }}
+      className={`${styles.inlineField} ${styles.inlineInput}`}
+    />
+  );
+}
+
+function InlineNumber({
+  value,
+  placeholder,
+  onCommit,
+}: {
+  value: number | null;
+  placeholder: string;
+  onCommit: (raw: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [local, setLocal] = useState(value === null ? "" : String(value));
+
+  useEffect(() => {
+    if (!editing) setLocal(value === null ? "" : String(value));
+  }, [value, editing]);
+
+  if (!editing) {
+    return (
+      <div
+        className={`${styles.inlineField} ${styles.inlineDisplay} ${
+          value === null ? styles.inlinePlaceholder : ""
+        }`}
+        onMouseDown={(e) => {
+          e.preventDefault();
+          setEditing(true);
+        }}
+        title="Click para editar"
+      >
+        {value !== null ? value : placeholder}
+      </div>
+    );
+  }
+
+  return (
+    <input
+      autoFocus
+      inputMode="decimal"
+      value={local}
+      onChange={(e) => setLocal(e.target.value)}
+      onBlur={() => {
+        setEditing(false);
+        onCommit(local);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+        if (e.key === "Escape") {
+          setEditing(false);
+          setLocal(value === null ? "" : String(value));
+        }
+      }}
+      className={`${styles.inlineField} ${styles.inlineInput}`}
+    />
   );
 }
 
@@ -709,99 +805,205 @@ function BulkModal({
 }: {
   count: number;
   onClose: () => void;
-  onApply: (values: {
+  onApply: (v: {
     ancho_cm: number | null | "skip";
     composicion: string | null | "skip";
   }) => void;
 }) {
-  const [anchoMode, setAnchoMode] = useState<BulkFieldMode>("skip");
-  const [compMode, setCompMode] = useState<BulkFieldMode>("skip");
+  const [anchoMode, setAnchoMode] = useState<BulkFieldMode>("set");
+  const [compMode, setCompMode] = useState<BulkFieldMode>("set");
+  const [ancho, setAncho] = useState("");
+  const [comp, setComp] = useState("");
 
-  const [anchoText, setAnchoText] = useState("");
-  const [compText, setCompText] = useState("");
-
-  function submit() {
-    const ancho =
+  function handleApply() {
+    const anchoAction =
       anchoMode === "skip"
         ? "skip"
         : anchoMode === "clear"
           ? null
-          : clampNumberOrNull(anchoText);
+          : clampNumberOrNull(ancho);
 
-    const comp =
+    const compAction =
       compMode === "skip"
         ? "skip"
         : compMode === "clear"
           ? null
-          : normTextOrNull(compText);
+          : normTextOrNull(comp);
+
+    const invalidSetAncho = anchoMode === "set" && ancho.trim() === "";
+    const invalidSetComp = compMode === "set" && comp.trim() === "";
+
+    if (invalidSetAncho && invalidSetComp) return;
+    if (invalidSetAncho && compMode === "skip") return;
+    if (invalidSetComp && anchoMode === "skip") return;
+
+    if (anchoMode === "set" && ancho.trim() === "") {
+      onApply({
+        ancho_cm: "skip",
+        composicion: compAction,
+      });
+      return;
+    }
+
+    if (compMode === "set" && comp.trim() === "") {
+      onApply({
+        ancho_cm: anchoAction,
+        composicion: "skip",
+      });
+      return;
+    }
 
     onApply({
-      ancho_cm: ancho,
-      composicion: comp,
+      ancho_cm: anchoAction,
+      composicion: compAction,
     });
   }
 
+  const disableAnchoInput = anchoMode !== "set";
+  const disableCompInput = compMode !== "set";
+
+  const noRealAction =
+    (anchoMode === "skip" || (anchoMode === "set" && ancho.trim() === "")) &&
+    (compMode === "skip" || (compMode === "set" && comp.trim() === ""));
+
   return (
-    <div className={styles.modalBackdrop}>
-      <div className={styles.modal}>
+    <div className={styles.modalBackdrop} onMouseDown={onClose}>
+      <div
+        className={styles.modal}
+        onMouseDown={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+      >
         <div className={styles.modalHeader}>
-          <h3>Aplicar a selección</h3>
-          <button className={styles.closeButton} onClick={onClose}>
-            ×
+          <div>
+            <div className={styles.modalTitle}>Aplicar a selección</div>
+            <div className={styles.modalSubtitle}>
+              Se aplicará a <b>{count}</b> producto(s).
+            </div>
+          </div>
+
+          <button className={styles.ghostButton} onClick={onClose}>
+            Cerrar
           </button>
         </div>
 
-        <p className={styles.modalText}>
-          Vas a aplicar cambios sobre <b>{count}</b> producto(s).
-        </p>
-
         <div className={styles.bulkGrid}>
-          <div className={styles.bulkField}>
-            <label>Ancho</label>
-            <select
-              value={anchoMode}
-              onChange={(e) => setAnchoMode(e.target.value as BulkFieldMode)}
-            >
-              <option value="skip">No cambiar</option>
-              <option value="set">Asignar valor</option>
-              <option value="clear">Vaciar</option>
-            </select>
+          <div className={styles.bulkCard}>
+            <div className={styles.bulkLabel}>Ancho (cm)</div>
 
-            {anchoMode === "set" ? (
-              <input
-                value={anchoText}
-                onChange={(e) => setAnchoText(e.target.value)}
-                placeholder="Ej: 120"
-              />
-            ) : null}
+            <div className={styles.bulkModes}>
+              <label className={styles.bulkModeOption}>
+                <input
+                  type="radio"
+                  name="bulk-ancho-mode"
+                  checked={anchoMode === "set"}
+                  onChange={() => setAnchoMode("set")}
+                />
+                <span>Asignar valor</span>
+              </label>
+
+              <label className={styles.bulkModeOption}>
+                <input
+                  type="radio"
+                  name="bulk-ancho-mode"
+                  checked={anchoMode === "skip"}
+                  onChange={() => setAnchoMode("skip")}
+                />
+                <span>No modificar</span>
+              </label>
+
+              <label className={styles.bulkModeOption}>
+                <input
+                  type="radio"
+                  name="bulk-ancho-mode"
+                  checked={anchoMode === "clear"}
+                  onChange={() => setAnchoMode("clear")}
+                />
+                <span>Borrar valor</span>
+              </label>
+            </div>
+
+            <input
+              className={styles.bulkInput}
+              value={ancho}
+              onChange={(e) => setAncho(e.target.value)}
+              placeholder="Ej: 55"
+              inputMode="decimal"
+              disabled={disableAnchoInput}
+            />
+
+            <div className={styles.bulkHint}>
+              {anchoMode === "set"
+                ? "Ingresá el valor a asignar."
+                : anchoMode === "skip"
+                  ? "Este campo no se modificará."
+                  : "Se eliminará el valor actual de ancho."}
+            </div>
           </div>
 
-          <div className={styles.bulkField}>
-            <label>Composición</label>
-            <select
-              value={compMode}
-              onChange={(e) => setCompMode(e.target.value as BulkFieldMode)}
-            >
-              <option value="skip">No cambiar</option>
-              <option value="set">Asignar valor</option>
-              <option value="clear">Vaciar</option>
-            </select>
+          <div className={styles.bulkCard}>
+            <div className={styles.bulkLabel}>Composición</div>
 
-            {compMode === "set" ? (
-              <input
-                value={compText}
-                onChange={(e) => setCompText(e.target.value)}
-                placeholder="Ej: 100% algodón"
-              />
-            ) : null}
+            <div className={styles.bulkModes}>
+              <label className={styles.bulkModeOption}>
+                <input
+                  type="radio"
+                  name="bulk-comp-mode"
+                  checked={compMode === "set"}
+                  onChange={() => setCompMode("set")}
+                />
+                <span>Asignar valor</span>
+              </label>
+
+              <label className={styles.bulkModeOption}>
+                <input
+                  type="radio"
+                  name="bulk-comp-mode"
+                  checked={compMode === "skip"}
+                  onChange={() => setCompMode("skip")}
+                />
+                <span>No modificar</span>
+              </label>
+
+              <label className={styles.bulkModeOption}>
+                <input
+                  type="radio"
+                  name="bulk-comp-mode"
+                  checked={compMode === "clear"}
+                  onChange={() => setCompMode("clear")}
+                />
+                <span>Borrar valor</span>
+              </label>
+            </div>
+
+            <input
+              className={styles.bulkInput}
+              value={comp}
+              onChange={(e) => setComp(e.target.value)}
+              placeholder="Ej: 100% algodón"
+              disabled={disableCompInput}
+            />
+
+            <div className={styles.bulkHint}>
+              {compMode === "set"
+                ? "Ingresá el valor a asignar."
+                : compMode === "skip"
+                  ? "Este campo no se modificará."
+                  : "Se eliminará el valor actual de composición."}
+            </div>
           </div>
         </div>
 
-        <div className={styles.modalActions}>
+        <div className={styles.modalFooter}>
           <button className={styles.ghostButton} onClick={onClose}>
             Cancelar
           </button>
-          <button className={styles.primaryButton} onClick={submit}>
+
+          <button
+            className={styles.primaryButton}
+            onClick={handleApply}
+            disabled={noRealAction}
+          >
             Aplicar
           </button>
         </div>
@@ -811,90 +1013,109 @@ function BulkModal({
 }
 
 function CsvImportModal({
-  loading,
+  pendingCount,
+  importing,
   onClose,
-  onImport,
+  onImported,
 }: {
-  loading: boolean;
+  pendingCount: number;
+  importing: boolean;
   onClose: () => void;
-  onImport: (file: File) => Promise<ImportCsvOut>;
+  onImported: (file: File) => Promise<void>;
 }) {
   const [file, setFile] = useState<File | null>(null);
-  const [result, setResult] = useState<ImportCsvOut | null>(null);
-  const [error, setError] = useState<string>("");
+  const [localError, setLocalError] = useState<string>("");
 
-  async function submit() {
+  async function handleSubmit() {
     if (!file) {
-      setError("Seleccioná un archivo CSV.");
+      setLocalError("Seleccioná un archivo CSV para importar.");
       return;
     }
 
+    setLocalError("");
+
     try {
-      setError("");
-      const res = await onImport(file);
-      setResult(res);
+      await onImported(file);
     } catch (e: any) {
-      setError(e?.message ?? String(e));
+      setLocalError(e?.message ?? String(e));
     }
   }
 
-  const resultObj = result as Record<string, unknown> | null;
-  const updated =
-    resultObj && typeof resultObj["updated"] === "number"
-      ? resultObj["updated"]
-      : null;
-  const skipped =
-    resultObj && typeof resultObj["skipped"] === "number"
-      ? resultObj["skipped"]
-      : null;
-  const errorsCount =
-    resultObj && Array.isArray(resultObj["errors"])
-      ? resultObj["errors"].length
-      : null;
-
   return (
-    <div className={styles.modalBackdrop}>
-      <div className={styles.modal}>
+    <div className={styles.modalBackdrop} onMouseDown={onClose}>
+      <div
+        className={styles.modal}
+        onMouseDown={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+      >
         <div className={styles.modalHeader}>
-          <h3>Importar CSV</h3>
-          <button className={styles.closeButton} onClick={onClose}>
-            ×
+          <div>
+            <div className={styles.modalTitle}>Importar CSV</div>
+            <div className={styles.modalSubtitle}>
+              Usá el archivo exportado como plantilla para editar y volver a
+              subirlo.
+            </div>
+          </div>
+
+          <button
+            className={styles.ghostButton}
+            onClick={onClose}
+            disabled={importing}
+          >
+            Cerrar
           </button>
         </div>
 
-        <p className={styles.modalText}>
-          Importá un CSV con columnas para actualizar atributos de productos.
-        </p>
+        <div className={styles.csvInfoBox}>
+          <div className={styles.csvInfoTitle}>Formato esperado</div>
+          <ul className={styles.csvInfoList}>
+            <li>Headers requeridos: product_id, ancho_cm, composicion</li>
+            <li>Codificación: UTF-8</li>
+            <li>ancho_cm acepta número entero o decimal</li>
+            <li>Una celda vacía borra ese valor</li>
+            <li>Productos inexistentes se ignoran</li>
+          </ul>
+        </div>
 
-        <input
-          type="file"
-          accept=".csv,text/csv"
-          onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-        />
-
-        {error ? <div className={styles.errorBox}>{error}</div> : null}
-
-        {result ? (
-          <div className={styles.importResult}>
-            {updated !== null ? <div>Importados: {updated}</div> : null}
-            {skipped !== null ? <div>Omitidos: {skipped}</div> : null}
-            {errorsCount !== null ? <div>Errores: {errorsCount}</div> : null}
-            {updated === null && skipped === null && errorsCount === null ? (
-              <div>Importación completada correctamente.</div>
-            ) : null}
+        {pendingCount > 0 && (
+          <div className={styles.csvWarningBox}>
+            Tenés <b>{pendingCount}</b> cambio(s) manual(es) sin guardar. Si
+            importás un CSV, esos cambios locales se descartarán para refrescar
+            los datos importados.
           </div>
-        ) : null}
+        )}
 
-        <div className={styles.modalActions}>
-          <button className={styles.ghostButton} onClick={onClose}>
-            Cerrar
+        <div className={styles.csvFileBlock}>
+          <label className={styles.csvFileLabel}>Archivo CSV</label>
+          <input
+            type="file"
+            accept=".csv,text/csv"
+            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            disabled={importing}
+          />
+          <div className={styles.csvFileName}>
+            {file ? file.name : "Ningún archivo seleccionado"}
+          </div>
+        </div>
+
+        {localError && <div className={styles.csvErrorBox}>{localError}</div>}
+
+        <div className={styles.modalFooter}>
+          <button
+            className={styles.ghostButton}
+            onClick={onClose}
+            disabled={importing}
+          >
+            Cancelar
           </button>
+
           <button
             className={styles.primaryButton}
-            disabled={loading}
-            onClick={submit}
+            onClick={handleSubmit}
+            disabled={!file || importing}
           >
-            {loading ? "Importando..." : "Importar"}
+            {importing ? "Importando..." : "Importar archivo"}
           </button>
         </div>
       </div>
