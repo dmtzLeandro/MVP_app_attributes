@@ -63,3 +63,25 @@ class ProductAttributesBatchOut(BaseModel):
 
     missing_products: list[str]
     items: list[ProductAttributesBatchItemOut]
+
+
+# -------------------------
+# STOREFRONT PUBLIC READ
+# -------------------------
+class StorefrontAttributesBatchIn(BaseModel):
+    store_id: str
+    product_ids: list[str]
+
+
+class StorefrontAttributesItemOut(BaseModel):
+    product_id: str
+    ancho_cm: float | None
+    composicion: str | None
+
+
+class StorefrontAttributesBatchOut(BaseModel):
+    ok: bool
+    store_id: str
+    found: int
+    missing_products: list[str]
+    items: list[StorefrontAttributesItemOut]

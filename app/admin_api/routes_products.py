@@ -17,6 +17,8 @@ from app.admin_api.schemas import (
     ProductAttributesIn,
     ProductAttributesOut,
     ProductOut,
+    StorefrontAttributesBatchIn,
+    StorefrontAttributesBatchOut,
 )
 from app.core.cache import build_batch_get_key, get_cached, invalidate_store, set_cached
 from app.core.idempotency import (
@@ -120,6 +122,67 @@ async def product_thumbnail(
 
     headers = {"Cache-Control": "public, max-age=86400"}
     return FileResponse(path=str(p), media_type="image/webp", headers=headers)
+
+
+# -------------------------
+# STOREFRONT PUBLIC READ — SIN JWT
+# -------------------------
+@router.post(
+    "/storefront/attributes/batch",
+    response_model=StorefrontAttributesBatchOut,
+)
+def storefront_batch_attributes(
+    payload: StorefrontAttributesBatchIn,
+    db: Session = Depends(get_db),
+):
+    store_id = payload.store_id
+    product_ids = list(dict.fromkeys(payload.product_ids))
+
+    cache_key = build_batch_get_key(store_id=store_id, product_ids=product_ids)
+    cached = get_cached(cache_key)
+    if cached is not None:
+        return {
+            "ok": True,
+            "store_id": store_id,
+            "found": cached.get("found", 0) or 0,
+            "missing_products": cached.get("missing_products", []),
+            "items": cached.get("items", []),
+        }
+
+    existing_rows = (
+        db.query(Product.product_id)
+        .filter(Product.store_id == store_id, Product.product_id.in_(product_ids))
+        .all()
+    )
+    existing_ids = {r[0] for r in existing_rows}
+
+    missing = [pid for pid in product_ids if pid not in existing_ids]
+    found_ids = [pid for pid in product_ids if pid in existing_ids]
+
+    out_data = batch_get(db, store_id=store_id, product_ids=found_ids)
+
+    response_payload = {
+        "ok": True,
+        "store_id": store_id,
+        "found": len(found_ids),
+        "missing_products": missing,
+        "items": out_data["items"],
+    }
+
+    set_cached(
+        cache_key,
+        {
+            "ok": True,
+            "mode": "get",
+            "store_id": store_id,
+            "found": len(found_ids),
+            "missing_products": missing,
+            "items": out_data["items"],
+        },
+        ttl_seconds=45,
+    )
+
+    return response_payload
 
 
 # -------------------------
