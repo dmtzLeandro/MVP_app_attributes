@@ -98,20 +98,24 @@ async def seed_products(db: Session, store_id: str, access_token: str) -> int:
                 obj.title = title
                 obj.tn_updated_at = tn_updated_at
 
-            # Best-effort: traer imagen principal solo si no tenemos o si está vacía
-            if not obj.image_src:
+            src: str | None = None
+            images = p.get("images")
+
+            if isinstance(images, list):
+                src = pick_main_image_src(images)
+            elif not obj.image_src:
                 try:
                     imgs = await client.list_product_images(product_id=product_id)
                     src = pick_main_image_src(imgs)
-                    obj.image_src = src
-                    obj.image_src_hash = calc_src_hash(src) if src else None
                 except Exception:
-                    obj.image_src = None
-                    obj.image_src_hash = None
-            else:
-                # asegurar hash presente si ya había src
-                if obj.image_src and not obj.image_src_hash:
-                    obj.image_src_hash = calc_src_hash(obj.image_src)
+                    logger.warning(
+                        "seed_product_images_fallback_failed",
+                        extra={"store_id": store_id, "product_id": product_id},
+                    )
+                    src = None
+
+            obj.image_src = src
+            obj.image_src_hash = calc_src_hash(src) if src else None
 
             inserted_or_updated += 1
 

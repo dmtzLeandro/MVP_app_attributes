@@ -90,6 +90,15 @@ async def product_thumbnail(
                 size=size,
             )
         except Exception:
+            logger.exception(
+                "thumbnail_generation_failed",
+                extra={
+                    "store_id": store_id,
+                    "product_id": product_id,
+                    "image_src": prod.image_src,
+                    "size": size,
+                },
+            )
             return Response(status_code=204)
 
     headers = {"Cache-Control": "public, max-age=86400"}

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import logging
+
+from sqlalchemy import delete, func, tuple_
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from app.db.models.product_attribute_value import ProductAttributeValue
@@ -40,28 +43,6 @@ def get_attrs_map(
         .all()
     )
     return {(r.product_id, r.attribute_key): r.value for r in rows}
-
-
-def get_attr_rows_map(
-    db: Session, store_id: str, product_ids: list[str]
-) -> dict[tuple[str, str], ProductAttributeValue]:
-    """
-    1 query: (product_id, attribute_key) -> ORM row
-    Útil para upsert batch sin reconsultas por item y sin inserts ciegos.
-    """
-    if not product_ids:
-        return {}
-
-    rows = (
-        db.query(ProductAttributeValue)
-        .filter(
-            ProductAttributeValue.store_id == store_id,
-            ProductAttributeValue.product_id.in_(product_ids),
-            ProductAttributeValue.attribute_key.in_(list(MVP_KEYS)),
-        )
-        .all()
-    )
-    return {(r.product_id, r.attribute_key): r for r in rows}
 
 
 def upsert_one(
@@ -143,69 +124,96 @@ def batch_upsert(
     No hace commit aquí: el caller controla commit/rollback.
     Devuelve contadores y items_out (read-back).
     """
-    inserted = updated = deleted = 0
-    product_ids_in_order: list[str] = []
+    inserted = updated = deleted_count = 0
     received = len(items)
 
-    valid_items: list[dict] = []
+    product_ids_in_order: list[str] = []
+    final_by_product: dict[str, dict[str, str | None]] = {}
+
     for it in items:
         pid = it["product_id"]
         if pid not in existing_ids:
             continue
-        valid_items.append(it)
-        if pid not in product_ids_in_order:
+
+        if pid not in final_by_product:
             product_ids_in_order.append(pid)
 
-    # Precargar rows existentes una sola vez para evitar inserts ciegos y conflictos.
-    rows_map = get_attr_rows_map(
-        db, store_id=store_id, product_ids=product_ids_in_order
-    )
-
-    for it in valid_items:
-        pid = it["product_id"]
-
-        incoming_values = {
-            "ancho_cm": str(it["ancho_cm"]) if it.get("ancho_cm") is not None else None,
+        final_by_product[pid] = {
+            "ancho_cm": (
+                str(it["ancho_cm"]) if it.get("ancho_cm") is not None else None
+            ),
             "composicion": it.get("composicion"),
         }
 
+    existing_map = get_attrs_map(
+        db, store_id=store_id, product_ids=product_ids_in_order
+    )
+
+    delete_pairs: list[tuple[str, str]] = []
+    upsert_rows: list[dict[str, str]] = []
+
+    for pid in product_ids_in_order:
+        incoming_values = final_by_product[pid]
+
         for key in MVP_KEYS:
             incoming = incoming_values[key]
-            map_key = (pid, key)
-            row = rows_map.get(map_key)
+            existing = existing_map.get((pid, key))
 
-            # Delete si viene vacío/null
             if incoming is None or incoming == "":
-                if row is not None:
-                    db.delete(row)
-                    deleted += 1
-                    rows_map.pop(map_key, None)
+                if existing is not None:
+                    delete_pairs.append((pid, key))
+                    deleted_count += 1
                 continue
 
             incoming_str = str(incoming)
 
-            # Insert si no existe
-            if row is None:
-                new_row = ProductAttributeValue(
-                    store_id=store_id,
-                    product_id=pid,
-                    attribute_key=key,
-                    value=incoming_str,
-                )
-                db.add(new_row)
-                rows_map[map_key] = new_row
+            if existing is None:
                 inserted += 1
+                upsert_rows.append(
+                    {
+                        "store_id": store_id,
+                        "product_id": pid,
+                        "attribute_key": key,
+                        "value": incoming_str,
+                    }
+                )
                 continue
 
-            # Update si cambió
-            if row.value != incoming_str:
-                row.value = incoming_str
+            if existing != incoming_str:
                 updated += 1
+                upsert_rows.append(
+                    {
+                        "store_id": store_id,
+                        "product_id": pid,
+                        "attribute_key": key,
+                        "value": incoming_str,
+                    }
+                )
 
-    # Flush explícito para detectar conflictos acá y no recién en commit.
+    if delete_pairs:
+        db.execute(
+            delete(ProductAttributeValue).where(
+                ProductAttributeValue.store_id == store_id,
+                tuple_(
+                    ProductAttributeValue.product_id,
+                    ProductAttributeValue.attribute_key,
+                ).in_(delete_pairs),
+            )
+        )
+
+    if upsert_rows:
+        stmt = pg_insert(ProductAttributeValue).values(upsert_rows)
+        stmt = stmt.on_conflict_do_update(
+            constraint="uq_store_product_attr",
+            set_={
+                "value": stmt.excluded.value,
+                "updated_at": func.now(),
+            },
+        )
+        db.execute(stmt)
+
     db.flush()
 
-    # read-back en 1 query
     attrs_map = get_attrs_map(db, store_id=store_id, product_ids=product_ids_in_order)
     items_out = [
         read_attrs_out(store_id, pid, attrs_map) for pid in product_ids_in_order
@@ -218,7 +226,7 @@ def batch_upsert(
             "received": received,
             "inserted": inserted,
             "updated": updated,
-            "deleted": deleted,
+            "deleted": deleted_count,
             "missing_products": max(0, received - len(product_ids_in_order)),
         },
     )
@@ -226,7 +234,7 @@ def batch_upsert(
     return {
         "inserted": inserted,
         "updated": updated,
-        "deleted": deleted,
+        "deleted": deleted_count,
         "items_out": items_out,
         "product_ids": product_ids_in_order,
     }
