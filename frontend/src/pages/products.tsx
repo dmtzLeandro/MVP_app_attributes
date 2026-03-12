@@ -838,6 +838,20 @@ function CsvImportModal({
     }
   }
 
+  const resultObj = result as Record<string, unknown> | null;
+  const updated =
+    resultObj && typeof resultObj["updated"] === "number"
+      ? resultObj["updated"]
+      : null;
+  const skipped =
+    resultObj && typeof resultObj["skipped"] === "number"
+      ? resultObj["skipped"]
+      : null;
+  const errorsCount =
+    resultObj && Array.isArray(resultObj["errors"])
+      ? resultObj["errors"].length
+      : null;
+
   return (
     <div className={styles.modalBackdrop}>
       <div className={styles.modal}>
@@ -862,9 +876,12 @@ function CsvImportModal({
 
         {result ? (
           <div className={styles.importResult}>
-            <div>Importados: {result.updated}</div>
-            <div>Omitidos: {result.skipped}</div>
-            <div>Errores: {result.errors.length}</div>
+            {updated !== null ? <div>Importados: {updated}</div> : null}
+            {skipped !== null ? <div>Omitidos: {skipped}</div> : null}
+            {errorsCount !== null ? <div>Errores: {errorsCount}</div> : null}
+            {updated === null && skipped === null && errorsCount === null ? (
+              <div>Importación completada correctamente.</div>
+            ) : null}
           </div>
         ) : null}
 
