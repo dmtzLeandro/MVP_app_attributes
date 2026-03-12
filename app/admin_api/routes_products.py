@@ -49,6 +49,23 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 logger = logging.getLogger("app.admin.products")
 
 
+def ensure_mvp_attribute_definitions(db: Session) -> None:
+    defs = [
+        ("ancho_cm", "Ancho (cm)", "number"),
+        ("composicion", "Composición", "string"),
+    ]
+
+    for key, label, value_type in defs:
+        row = db.get(AttributeDefinition, key)
+        if row is None:
+            db.add(AttributeDefinition(key=key, label=label, value_type=value_type))
+        else:
+            row.label = label
+            row.value_type = value_type
+
+    db.flush()
+
+
 @router.get("/debug/ping")
 def debug_ping():
     return {"ok": True, "module": "routes_products.py"}
@@ -114,26 +131,14 @@ def seed_attribute_definitions(
     db: Session = Depends(get_db),
     _: dict = Depends(require_admin),
 ):
-    defs = [
-        ("ancho_cm", "Ancho (cm)", "number"),
-        ("composicion", "Composición", "string"),
-    ]
-
     try:
-        for key, label, value_type in defs:
-            row = db.get(AttributeDefinition, key)
-            if row is None:
-                db.add(AttributeDefinition(key=key, label=label, value_type=value_type))
-            else:
-                row.label = label
-                row.value_type = value_type
-
+        ensure_mvp_attribute_definitions(db)
         db.commit()
     except Exception:
         db.rollback()
         raise
 
-    return {"ok": True, "seeded": [d[0] for d in defs]}
+    return {"ok": True, "seeded": ["ancho_cm", "composicion"]}
 
 
 # -------------------------
@@ -396,6 +401,8 @@ def upsert_attributes_endpoint(
         )
 
     try:
+        ensure_mvp_attribute_definitions(db)
+
         upsert_one(
             db,
             store_id=store_id,
@@ -501,6 +508,8 @@ def batch_product_attributes(
         ]
 
         try:
+            ensure_mvp_attribute_definitions(db)
+
             out_data = batch_upsert(
                 db, store_id=store_id, items=items_payload, existing_ids=existing_ids
             )
