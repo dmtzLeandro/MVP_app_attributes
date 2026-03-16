@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import json
 import logging
-from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -30,7 +28,7 @@ from app.core.idempotency import (
 )
 from app.core.jobs import enqueue_job
 from app.core.rate_limit import rate_limit
-from app.core.security import require_admin
+from app.core.security import require_panel_user
 from app.core.thumb_sign import sign_thumb, verify_thumb_sig
 from app.db.deps import get_db
 from app.db.models.attribute_definition import AttributeDefinition
@@ -44,7 +42,7 @@ from app.services.product_attributes import (
     parse_ancho_cm,
     upsert_one,
 )
-from app.services.stores_tokens import get_store_access_token, set_store_access_token
+from app.services.stores_tokens import get_store_access_token
 from app.services.thumbnails import ensure_thumbnail, thumb_path
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -68,6 +66,30 @@ def ensure_mvp_attribute_definitions(db: Session) -> None:
     db.flush()
 
 
+def _authorized_store_id(auth: dict, requested_store_id: str | None = None) -> str:
+    store_id = auth.get("store_id")
+    if not isinstance(store_id, str) or not store_id.strip():
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "FORBIDDEN", "message": "Forbidden", "details": None},
+        )
+
+    if requested_store_id and requested_store_id != store_id:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "STORE_ACCESS_FORBIDDEN",
+                "message": "Forbidden",
+                "details": {
+                    "requested_store_id": requested_store_id,
+                    "authorized_store_id": store_id,
+                },
+            },
+        )
+
+    return store_id
+
+
 @router.get("/debug/ping")
 def debug_ping():
     return {"ok": True, "module": "routes_products.py"}
@@ -88,12 +110,6 @@ async def product_thumbnail(
     """
     Endpoint consumido por <img>: no manda Authorization.
     Seguridad: URL firmada (sig) con TTL.
-
-    Estrategia actual:
-    - Si la miniatura ya existe: servirla.
-    - Si no existe: intentar generarla en modo best-effort.
-    - Si el servidor está ocupado o falla la generación: responder rápido
-      con redirect a la imagen original para no bloquear el panel.
     """
     if not verify_thumb_sig(
         store_id=store_id, product_id=product_id, v=v, size=size, sig=sig
@@ -127,8 +143,6 @@ async def product_thumbnail(
                 "size": size,
             },
         )
-        # Fallback rápido. No cacheamos este redirect para que en futuros hits
-        # pueda volver a intentar servir la miniatura local.
         return RedirectResponse(
             url=prod.image_src,
             status_code=307,
@@ -141,7 +155,6 @@ async def product_thumbnail(
             path=str(generated), media_type="image/webp", headers=headers
         )
 
-    # Sin capacidad inmediata o no generada a tiempo: degradar rápido.
     return RedirectResponse(
         url=prod.image_src,
         status_code=307,
@@ -211,13 +224,13 @@ def storefront_batch_attributes(
 
 
 # -------------------------
-# ATTR DEFINITIONS — JWT
+# ATTR DEFINITIONS — PANEL USER
 # -------------------------
 @router.post("/attributes/seed")
 def seed_attribute_definitions(
     request: Request,
     db: Session = Depends(get_db),
-    _: dict = Depends(require_admin),
+    _: dict = Depends(require_panel_user),
 ):
     try:
         ensure_mvp_attribute_definitions(db)
@@ -230,91 +243,51 @@ def seed_attribute_definitions(
 
 
 # -------------------------
-# DEV HELPER — JWT
+# DEV HELPER — DESHABILITADO
 # -------------------------
 @router.post("/stores/bootstrap-from-token")
-def bootstrap_store_from_token(
-    db: Session = Depends(get_db),
-    _: dict = Depends(require_admin),
-):
-    token_path = Path("app") / "tiendanube_connector" / "token.json"
-
-    if not token_path.exists():
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "code": "TOKEN_FILE_NOT_FOUND",
-                "message": "token.json not found",
-                "details": {"path": str(token_path)},
-            },
-        )
-
-    token = json.loads(token_path.read_text(encoding="utf-8"))
-
-    store_id = str(token["user_id"])
-    access_token_plain = token["access_token"]
-
-    try:
-        obj = db.get(Store, store_id)
-        if obj is None:
-            obj = Store(store_id=store_id, status="installed")
-            set_store_access_token(db, obj, access_token_plain)
-            db.add(obj)
-        else:
-            set_store_access_token(db, obj, access_token_plain)
-            obj.status = "installed"
-
-        db.commit()
-    except Exception:
-        db.rollback()
-        raise
-
-    return {"ok": True, "store_id": store_id}
+def bootstrap_store_from_token():
+    raise HTTPException(
+        status_code=403,
+        detail={
+            "code": "ENDPOINT_DISABLED",
+            "message": "Endpoint disabled",
+            "details": None,
+        },
+    )
 
 
 # -------------------------
-# IMPORT (SYNC) — JWT
+# IMPORT (SYNC) — PANEL USER / SU TIENDA
 # -------------------------
 @router.post("/products/import")
 async def import_products(
     request: Request,
     store_id: str | None = None,
     db: Session = Depends(get_db),
-    _: dict = Depends(require_admin),
+    auth: dict = Depends(require_panel_user),
 ):
     rate_limit(request, name="products_import", limit=2, window_seconds=60)
+    authorized_store_id = _authorized_store_id(auth, store_id)
 
-    store: Store | None = None
-    if store_id:
-        store = db.get(Store, store_id)
-        if not store:
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "code": "STORE_NOT_FOUND",
-                    "message": "Store not found",
-                    "details": {"store_id": store_id},
-                },
-            )
-        if store.status != "installed":
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "code": "STORE_NOT_INSTALLED",
-                    "message": "Store is not installed",
-                    "details": {"store_id": store_id, "status": store.status},
-                },
-            )
-    else:
-        store = db.query(Store).filter(Store.status == "installed").first()
-
+    store = db.get(Store, authorized_store_id)
     if not store:
         raise HTTPException(
             status_code=400,
             detail={
-                "code": "NO_INSTALLED_STORE",
-                "message": "No installed store found",
-                "details": None,
+                "code": "STORE_NOT_FOUND",
+                "message": "Store not found",
+                "details": {"store_id": authorized_store_id},
+            },
+        )
+
+    if store.status != "installed":
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "STORE_NOT_INSTALLED",
+                "message": "Store is not installed",
+                "details": {"store_id": authorized_store_id, "status": store.status},
             },
         )
 
@@ -350,25 +323,26 @@ async def import_products(
 
 
 # -------------------------
-# IMPORT (JOB) — JWT
+# IMPORT (JOB) — PANEL USER / SU TIENDA
 # -------------------------
 @router.post("/products/import/job")
 def import_products_job(
     request: Request,
-    store_id: str,
+    store_id: str | None = None,
     db: Session = Depends(get_db),
-    _: dict = Depends(require_admin),
+    auth: dict = Depends(require_panel_user),
 ):
     rate_limit(request, name="products_import_job", limit=5, window_seconds=60)
+    authorized_store_id = _authorized_store_id(auth, store_id)
 
-    store = db.get(Store, store_id)
+    store = db.get(Store, authorized_store_id)
     if not store:
         raise HTTPException(
             status_code=400,
             detail={
                 "code": "STORE_NOT_FOUND",
                 "message": "Store not found",
-                "details": {"store_id": store_id},
+                "details": {"store_id": authorized_store_id},
             },
         )
     if store.status != "installed":
@@ -377,29 +351,33 @@ def import_products_job(
             detail={
                 "code": "STORE_NOT_INSTALLED",
                 "message": "Store is not installed",
-                "details": {"store_id": store_id, "status": store.status},
+                "details": {"store_id": authorized_store_id, "status": store.status},
             },
         )
 
     job_id = enqueue_job(
-        job_type="seed_products", payload={"store_id": store_id}, ttl_seconds=3600
+        job_type="seed_products",
+        payload={"store_id": authorized_store_id},
+        ttl_seconds=3600,
     )
-    return {"ok": True, "job_id": job_id, "store_id": store_id}
+    return {"ok": True, "job_id": job_id, "store_id": authorized_store_id}
 
 
 # -------------------------
-# LIST PRODUCTS — JWT (SIGNED THUMB URL ABSOLUTA)
+# LIST PRODUCTS — PANEL USER / SU TIENDA
 # -------------------------
 @router.get("/products", response_model=list[ProductOut])
 def list_products(
     request: Request,
-    store_id: str,
+    store_id: str | None = None,
     db: Session = Depends(get_db),
-    _: dict = Depends(require_admin),
+    auth: dict = Depends(require_panel_user),
 ):
+    authorized_store_id = _authorized_store_id(auth, store_id)
+
     rows = (
         db.query(Product)
-        .filter(Product.store_id == store_id)
+        .filter(Product.store_id == authorized_store_id)
         .order_by(Product.title.asc())
         .limit(5000)
         .all()
@@ -412,13 +390,13 @@ def list_products(
         v = r.image_src_hash or ""
         if r.image_src:
             sig = sign_thumb(
-                store_id=store_id,
+                store_id=authorized_store_id,
                 product_id=r.product_id,
                 v=v,
                 size=96,
                 ttl_seconds=3600,
             )
-            thumb_url = f"{base}/admin/products/{r.product_id}/thumbnail?store_id={store_id}&size=96&v={v}&sig={sig}"
+            thumb_url = f"{base}/admin/products/{r.product_id}/thumbnail?store_id={authorized_store_id}&size=96&v={v}&sig={sig}"
         else:
             thumb_url = None
 
@@ -434,36 +412,41 @@ def list_products(
 
 
 # -------------------------
-# SINGLE PRODUCT ATTRS — JWT
+# SINGLE PRODUCT ATTRS — PANEL USER / SU TIENDA
 # -------------------------
 @router.get("/products/{product_id}/attributes", response_model=ProductAttributesOut)
 def get_attributes(
-    store_id: str,
     product_id: str,
+    store_id: str | None = None,
     db: Session = Depends(get_db),
-    _: dict = Depends(require_admin),
+    auth: dict = Depends(require_panel_user),
 ):
-    prod = db.get(Product, (store_id, product_id))
+    authorized_store_id = _authorized_store_id(auth, store_id)
+
+    prod = db.get(Product, (authorized_store_id, product_id))
     if not prod:
         raise HTTPException(
             status_code=404,
             detail={
                 "code": "PRODUCT_NOT_FOUND_LOCAL",
                 "message": "Product not found in local DB",
-                "details": {"store_id": store_id, "product_id": product_id},
+                "details": {
+                    "store_id": authorized_store_id,
+                    "product_id": product_id,
+                },
             },
         )
 
     rows = (
         db.query(ProductAttributeValue)
-        .filter_by(store_id=store_id, product_id=product_id)
+        .filter_by(store_id=authorized_store_id, product_id=product_id)
         .all()
     )
     data = {r.attribute_key: r.value for r in rows}
 
     return ProductAttributesOut(
         product_id=product_id,
-        store_id=store_id,
+        store_id=authorized_store_id,
         ancho_cm=parse_ancho_cm(data.get("ancho_cm")),
         composicion=data.get("composicion"),
     )
@@ -471,20 +454,25 @@ def get_attributes(
 
 @router.put("/products/{product_id}/attributes")
 def upsert_attributes_endpoint(
-    store_id: str,
     product_id: str,
     payload: ProductAttributesIn,
+    store_id: str | None = None,
     db: Session = Depends(get_db),
-    _: dict = Depends(require_admin),
+    auth: dict = Depends(require_panel_user),
 ):
-    prod = db.get(Product, (store_id, product_id))
+    authorized_store_id = _authorized_store_id(auth, store_id)
+
+    prod = db.get(Product, (authorized_store_id, product_id))
     if not prod:
         raise HTTPException(
             status_code=404,
             detail={
                 "code": "PRODUCT_NOT_FOUND_LOCAL",
                 "message": "Product not found in local DB",
-                "details": {"store_id": store_id, "product_id": product_id},
+                "details": {
+                    "store_id": authorized_store_id,
+                    "product_id": product_id,
+                },
             },
         )
 
@@ -493,14 +481,14 @@ def upsert_attributes_endpoint(
 
         upsert_one(
             db,
-            store_id=store_id,
+            store_id=authorized_store_id,
             product_id=product_id,
             key="ancho_cm",
             value=str(payload.ancho_cm) if payload.ancho_cm is not None else None,
         )
         upsert_one(
             db,
-            store_id=store_id,
+            store_id=authorized_store_id,
             product_id=product_id,
             key="composicion",
             value=payload.composicion,
@@ -511,32 +499,40 @@ def upsert_attributes_endpoint(
         db.rollback()
         raise
 
-    invalidate_store(store_id)
+    invalidate_store(authorized_store_id)
     return {"ok": True}
 
 
 # -------------------------
-# BATCH ATTRS — JWT
+# BATCH ATTRS — PANEL USER / SU TIENDA
 # -------------------------
 @router.post("/products/attributes/batch", response_model=ProductAttributesBatchOut)
 def batch_product_attributes(
     request: Request,
     payload: ProductAttributesBatchIn,
     db: Session = Depends(get_db),
-    _: dict = Depends(require_admin),
+    auth: dict = Depends(require_panel_user),
 ):
+    authorized_store_id = _authorized_store_id(auth)
+
     if isinstance(payload, ProductAttributesBatchGetIn):
-        store_id = payload.store_id
+        _authorized_store_id(auth, payload.store_id)
         product_ids = list(dict.fromkeys(payload.product_ids))
 
-        cache_key = build_batch_get_key(store_id=store_id, product_ids=product_ids)
+        cache_key = build_batch_get_key(
+            store_id=authorized_store_id,
+            product_ids=product_ids,
+        )
         cached = get_cached(cache_key)
         if cached is not None:
             return cached
 
         existing_rows = (
             db.query(Product.product_id)
-            .filter(Product.store_id == store_id, Product.product_id.in_(product_ids))
+            .filter(
+                Product.store_id == authorized_store_id,
+                Product.product_id.in_(product_ids),
+            )
             .all()
         )
         existing_ids = {r[0] for r in existing_rows}
@@ -544,12 +540,12 @@ def batch_product_attributes(
         missing = [pid for pid in product_ids if pid not in existing_ids]
         found_ids = [pid for pid in product_ids if pid in existing_ids]
 
-        out_data = batch_get(db, store_id=store_id, product_ids=found_ids)
+        out_data = batch_get(db, store_id=authorized_store_id, product_ids=found_ids)
 
         response_payload = {
             "ok": True,
             "mode": "get",
-            "store_id": store_id,
+            "store_id": authorized_store_id,
             "found": len(found_ids),
             "missing_products": missing,
             "items": out_data["items"],
@@ -560,7 +556,7 @@ def batch_product_attributes(
 
     if isinstance(payload, ProductAttributesBatchUpsertIn):
         rate_limit(request, name="attrs_batch_upsert", limit=60, window_seconds=60)
-        store_id = payload.store_id
+        _authorized_store_id(auth, payload.store_id)
 
         idem = get_idempotency_key(request)
         idem_cache_key: str | None = None
@@ -568,7 +564,7 @@ def batch_product_attributes(
             require_reasonable_idempotency_key(idem)
             idem_cache_key = build_key(
                 route="POST:/admin/products/attributes/batch:upsert",
-                store_id=store_id,
+                store_id=authorized_store_id,
                 idempotency_key=idem,
             )
             cached_resp = get_cached_response(idem_cache_key)
@@ -580,7 +576,10 @@ def batch_product_attributes(
 
         existing_rows = (
             db.query(Product.product_id)
-            .filter(Product.store_id == store_id, Product.product_id.in_(product_ids))
+            .filter(
+                Product.store_id == authorized_store_id,
+                Product.product_id.in_(product_ids),
+            )
             .all()
         )
         existing_ids = {r[0] for r in existing_rows}
@@ -600,7 +599,7 @@ def batch_product_attributes(
 
             out_data = batch_upsert(
                 db,
-                store_id=store_id,
+                store_id=authorized_store_id,
                 items=items_payload,
                 existing_ids=existing_ids,
             )
@@ -612,7 +611,7 @@ def batch_product_attributes(
         response_payload = {
             "ok": True,
             "mode": "upsert",
-            "store_id": store_id,
+            "store_id": authorized_store_id,
             "received": len(items_in),
             "inserted": out_data["inserted"],
             "updated": out_data["updated"],
@@ -624,7 +623,7 @@ def batch_product_attributes(
         if idem_cache_key:
             store_response(idem_cache_key, response_payload, ttl_seconds=600)
 
-        invalidate_store(store_id)
+        invalidate_store(authorized_store_id)
         return response_payload
 
     raise HTTPException(

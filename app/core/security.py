@@ -8,8 +8,10 @@ import time
 from typing import Any, Optional
 
 from fastapi import HTTPException, Request
+from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.db.models.panel_user import PanelUser
 
 
 def _b64url_encode(raw: bytes) -> str:
@@ -21,11 +23,23 @@ def _b64url_decode(data: str) -> bytes:
     return base64.urlsafe_b64decode((data + pad).encode("ascii"))
 
 
-def create_jwt(*, sub: str, expires_in_seconds: int | None = None) -> str:
+def create_jwt(
+    *,
+    sub: str,
+    store_id: str,
+    email: str,
+    expires_in_seconds: int | None = None,
+) -> str:
     header = {"alg": "HS256", "typ": "JWT"}
     now = int(time.time())
     exp_seconds = expires_in_seconds or int(settings.JWT_EXPIRES_SECONDS)
-    payload = {"sub": sub, "iat": now, "exp": now + exp_seconds}
+    payload = {
+        "sub": sub,
+        "store_id": store_id,
+        "email": email,
+        "iat": now,
+        "exp": now + exp_seconds,
+    }
 
     header_b64 = _b64url_encode(
         json.dumps(header, separators=(",", ":")).encode("utf-8")
@@ -110,10 +124,32 @@ def decode_and_verify_jwt(token: str) -> dict[str, Any]:
     return payload
 
 
-def verify_admin_credentials(username: str, password: str) -> bool:
-    return hmac.compare_digest(
-        username, settings.ADMIN_USERNAME
-    ) and hmac.compare_digest(password, settings.ADMIN_PASSWORD)
+def hash_password(password: str) -> str:
+    return hashlib.sha256(password.encode("utf-8")).hexdigest()
+
+
+def verify_password(password: str, password_hash: str) -> bool:
+    expected = hash_password(password)
+    return hmac.compare_digest(expected, password_hash)
+
+
+def verify_panel_user_credentials(
+    db: Session,
+    *,
+    email: str,
+    password: str,
+) -> PanelUser | None:
+    user = db.query(PanelUser).filter(PanelUser.email == email).first()
+    if user is None:
+        return None
+
+    if not user.is_active:
+        return None
+
+    if not verify_password(password, user.password_hash):
+        return None
+
+    return user
 
 
 def _extract_bearer_token(request: Request) -> Optional[str]:
@@ -123,7 +159,7 @@ def _extract_bearer_token(request: Request) -> Optional[str]:
     return auth.removeprefix("Bearer ").strip()
 
 
-def require_admin(request: Request) -> dict[str, Any]:
+def require_panel_user(request: Request) -> dict[str, Any]:
     token = _extract_bearer_token(request)
     if not token:
         raise HTTPException(
@@ -136,9 +172,27 @@ def require_admin(request: Request) -> dict[str, Any]:
         )
 
     payload = decode_and_verify_jwt(token)
-    if payload.get("sub") != "admin":
+
+    sub = payload.get("sub")
+    email = payload.get("email")
+    store_id = payload.get("store_id")
+
+    if not isinstance(sub, str) or not sub.strip():
         raise HTTPException(
             status_code=403,
             detail={"code": "FORBIDDEN", "message": "Forbidden", "details": None},
         )
+
+    if not isinstance(email, str) or not email.strip():
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "FORBIDDEN", "message": "Forbidden", "details": None},
+        )
+
+    if not isinstance(store_id, str) or not store_id.strip():
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "FORBIDDEN", "message": "Forbidden", "details": None},
+        )
+
     return payload

@@ -4,6 +4,7 @@ import {
   batchUpsertAttributes,
   exportCsvFile,
   fixMojibake,
+  getSessionEmail,
   getStoreId,
   importCsvFile,
   listProducts,
@@ -95,12 +96,14 @@ export default function ProductsPage() {
   const [bulkOpen, setBulkOpen] = useState(false);
   const [csvOpen, setCsvOpen] = useState(false);
 
+  const sessionStoreId = getStoreId();
+  const sessionEmail = getSessionEmail();
+
   async function loadProducts() {
     setErr("");
     setLoading(true);
     try {
-      const storeId = getStoreId();
-      const rows = await listProducts(storeId);
+      const rows = await listProducts();
       setProducts(rows);
     } catch (e: any) {
       setErr(e?.message ?? String(e));
@@ -116,8 +119,7 @@ export default function ProductsPage() {
     setErr("");
 
     try {
-      const storeId = getStoreId();
-      const res = await batchGetAttributes(ids, storeId);
+      const res = await batchGetAttributes(ids);
 
       const map: Record<string, ProductAttributes> = {};
       for (const it of res.items) map[it.product_id] = it;
@@ -236,7 +238,6 @@ export default function ProductsPage() {
       setSaving(true);
       setErr("");
 
-      const storeId = getStoreId();
       const items: BatchUpsertInItem[] = [];
 
       for (const pid of Object.keys(draft)) {
@@ -255,7 +256,7 @@ export default function ProductsPage() {
         return;
       }
 
-      const res = await batchUpsertAttributes(items, storeId);
+      const res = await batchUpsertAttributes(items);
 
       const map: Record<string, ProductAttributes> = {};
       for (const it of res.items) map[it.product_id] = it;
@@ -277,13 +278,12 @@ export default function ProductsPage() {
       setExportingCsv(true);
       setErr("");
 
-      const storeId = getStoreId();
-      const blob = await exportCsvFile(storeId);
+      const blob = await exportCsvFile();
 
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `products_${storeId}.csv`;
+      a.download = `products_${sessionStoreId}.csv`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -341,23 +341,17 @@ export default function ProductsPage() {
   }
 
   async function handleImportCsv(file: File): Promise<ImportCsvOut> {
-    const storeId = getStoreId();
     setImportingCsv(true);
     setErr("");
 
     try {
-      const result = await importCsvFile(file, storeId);
+      const result = await importCsvFile(file);
 
       setDraft({});
       setAttrs({});
       setSelected(new Set());
 
       await loadProducts();
-
-      const refreshedIds = pageItems.map((p) => p.product_id);
-      if (refreshedIds.length > 0) {
-        await loadAttrsForIds(refreshedIds);
-      }
 
       return result;
     } finally {
@@ -378,6 +372,13 @@ export default function ProductsPage() {
               Click en <b>Ancho</b> o <b>Composición</b> para editar. Guardá al
               final.
             </p>
+            {(sessionEmail || sessionStoreId) && (
+              <div className={styles.resultsInfo}>
+                {sessionEmail}
+                {sessionEmail && sessionStoreId ? " — " : ""}
+                {sessionStoreId ? `Tienda ${sessionStoreId}` : ""}
+              </div>
+            )}
           </div>
 
           <div className={styles.actions}>

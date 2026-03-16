@@ -46,7 +46,7 @@ export type ImportCsvOut = {
 };
 
 type LoginIn = {
-  username: string;
+  email: string;
   password: string;
 };
 
@@ -54,23 +54,28 @@ type LoginOut = {
   access_token: string;
   token_type: "bearer";
   expires_in: number;
+  store_id: string;
+  email: string;
+};
+
+type SessionUser = {
+  email: string;
+  store_id: string;
 };
 
 const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:8000";
-const STORE_ID = import.meta.env.VITE_STORE_ID || "";
 
 // storage keys
 const LS_TOKEN = "tnmvp_token";
 const LS_EXPIRES_AT = "tnmvp_token_expires_at";
+const LS_USER = "tnmvp_user";
+
 const SS_TOKEN = "tnmvp_token";
 const SS_EXPIRES_AT = "tnmvp_token_expires_at";
+const SS_USER = "tnmvp_user";
 
 function nowSeconds(): number {
   return Math.floor(Date.now() / 1000);
-}
-
-export function getStoreId(): string {
-  return STORE_ID;
 }
 
 function buildUrl(path: string): string {
@@ -102,11 +107,49 @@ function readStoredToken():
   return null;
 }
 
+function readStoredUser(): SessionUser | null {
+  const rawLocal = localStorage.getItem(LS_USER);
+  if (rawLocal) {
+    try {
+      return JSON.parse(rawLocal) as SessionUser;
+    } catch {
+      localStorage.removeItem(LS_USER);
+    }
+  }
+
+  const rawSession = sessionStorage.getItem(SS_USER);
+  if (rawSession) {
+    try {
+      return JSON.parse(rawSession) as SessionUser;
+    } catch {
+      sessionStorage.removeItem(SS_USER);
+    }
+  }
+
+  return null;
+}
+
+export function getSessionUser(): SessionUser | null {
+  if (!isAuthed()) return null;
+  return readStoredUser();
+}
+
+export function getStoreId(): string {
+  return getSessionUser()?.store_id || "";
+}
+
+export function getSessionEmail(): string {
+  return getSessionUser()?.email || "";
+}
+
 export function clearAuth() {
   localStorage.removeItem(LS_TOKEN);
   localStorage.removeItem(LS_EXPIRES_AT);
+  localStorage.removeItem(LS_USER);
+
   sessionStorage.removeItem(SS_TOKEN);
   sessionStorage.removeItem(SS_EXPIRES_AT);
+  sessionStorage.removeItem(SS_USER);
 }
 
 export function isAuthed(): boolean {
@@ -133,7 +176,12 @@ function getTokenOrNull(): string | null {
   return item.token;
 }
 
-function storeToken(token: string, expiresInSeconds: number, remember: boolean) {
+function storeToken(
+  token: string,
+  expiresInSeconds: number,
+  remember: boolean,
+  user: SessionUser,
+) {
   const exp = nowSeconds() + Math.max(1, expiresInSeconds);
 
   clearAuth();
@@ -141,9 +189,11 @@ function storeToken(token: string, expiresInSeconds: number, remember: boolean) 
   if (remember) {
     localStorage.setItem(LS_TOKEN, token);
     localStorage.setItem(LS_EXPIRES_AT, String(exp));
+    localStorage.setItem(LS_USER, JSON.stringify(user));
   } else {
     sessionStorage.setItem(SS_TOKEN, token);
     sessionStorage.setItem(SS_EXPIRES_AT, String(exp));
+    sessionStorage.setItem(SS_USER, JSON.stringify(user));
   }
 }
 
@@ -170,7 +220,9 @@ async function http<T>(path: string, opts: RequestInit = {}): Promise<T> {
     headers,
   });
 
-  const isJson = (res.headers.get("content-type") || "").includes("application/json");
+  const isJson = (res.headers.get("content-type") || "").includes(
+    "application/json",
+  );
   const data = isJson ? await res.json() : await res.text();
 
   if (res.status === 401) {
@@ -211,7 +263,9 @@ async function httpBlob(path: string, opts: RequestInit = {}): Promise<Blob> {
   }
 
   if (!res.ok) {
-    const isJson = (res.headers.get("content-type") || "").includes("application/json");
+    const isJson = (res.headers.get("content-type") || "").includes(
+      "application/json",
+    );
     const data = isJson ? await res.json() : await res.text();
     throw new Error(fixErrorMessage(data));
   }
@@ -222,14 +276,21 @@ async function httpBlob(path: string, opts: RequestInit = {}): Promise<Blob> {
 // ------------------------------------------------------
 // AUTH
 // ------------------------------------------------------
-export async function apiLogin(payload: LoginIn, remember: boolean): Promise<LoginOut> {
+export async function apiLogin(
+  payload: LoginIn,
+  remember: boolean,
+): Promise<LoginOut> {
   const out = await http<LoginOut>("/admin/auth/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
 
-  storeToken(out.access_token, out.expires_in, remember);
+  storeToken(out.access_token, out.expires_in, remember, {
+    email: out.email,
+    store_id: out.store_id,
+  });
+
   return out;
 }
 
@@ -243,26 +304,22 @@ export function fixMojibake(s: string): string {
 // ------------------------------------------------------
 // PRODUCTS
 // ------------------------------------------------------
-export async function listProducts(storeId: string): Promise<Product[]> {
-  const sid = storeId || STORE_ID;
-  if (!sid) throw new Error("Falta VITE_STORE_ID en .env del frontend.");
-
-  return http<Product[]>(`/admin/products?store_id=${encodeURIComponent(sid)}`);
+export async function listProducts(): Promise<Product[]> {
+  return http<Product[]>("/admin/products");
 }
 
 export async function batchGetAttributes(
   productIds: string[],
-  storeId: string,
 ): Promise<BatchGetOut> {
-  const sid = storeId || STORE_ID;
-  if (!sid) throw new Error("Falta VITE_STORE_ID en .env del frontend.");
+  const storeId = getStoreId();
+  if (!storeId) throw new Error("No se encontró la tienda de la sesión.");
 
   return http<BatchGetOut>("/admin/products/attributes/batch", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       mode: "get",
-      store_id: sid,
+      store_id: storeId,
       product_ids: productIds,
     }),
   });
@@ -270,10 +327,9 @@ export async function batchGetAttributes(
 
 export async function batchUpsertAttributes(
   items: BatchUpsertInItem[],
-  storeId: string,
 ): Promise<BatchUpsertOut> {
-  const sid = storeId || STORE_ID;
-  if (!sid) throw new Error("Falta VITE_STORE_ID en .env del frontend.");
+  const storeId = getStoreId();
+  if (!storeId) throw new Error("No se encontró la tienda de la sesión.");
 
   const idem = crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
 
@@ -285,7 +341,7 @@ export async function batchUpsertAttributes(
     },
     body: JSON.stringify({
       mode: "upsert",
-      store_id: sid,
+      store_id: storeId,
       items,
     }),
   });
@@ -293,26 +349,24 @@ export async function batchUpsertAttributes(
 
 export async function getProductAttributes(
   productId: string,
-  storeId: string,
 ): Promise<ProductAttributes> {
-  const sid = storeId || STORE_ID;
-  if (!sid) throw new Error("Falta VITE_STORE_ID en .env del frontend.");
+  const storeId = getStoreId();
+  if (!storeId) throw new Error("No se encontró la tienda de la sesión.");
 
   return http<ProductAttributes>(
-    `/admin/products/${encodeURIComponent(productId)}/attributes?store_id=${encodeURIComponent(sid)}`,
+    `/admin/products/${encodeURIComponent(productId)}/attributes?store_id=${encodeURIComponent(storeId)}`,
   );
 }
 
 export async function updateProductAttributes(
   productId: string,
-  storeId: string,
   payload: { ancho_cm: number | null; composicion: string | null },
 ): Promise<{ ok: boolean }> {
-  const sid = storeId || STORE_ID;
-  if (!sid) throw new Error("Falta VITE_STORE_ID en .env del frontend.");
+  const storeId = getStoreId();
+  if (!storeId) throw new Error("No se encontró la tienda de la sesión.");
 
   return http<{ ok: boolean }>(
-    `/admin/products/${encodeURIComponent(productId)}/attributes?store_id=${encodeURIComponent(sid)}`,
+    `/admin/products/${encodeURIComponent(productId)}/attributes?store_id=${encodeURIComponent(storeId)}`,
     {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -324,27 +378,24 @@ export async function updateProductAttributes(
 // ------------------------------------------------------
 // CSV
 // ------------------------------------------------------
-export async function exportCsvFile(storeId: string): Promise<Blob> {
-  const sid = storeId || STORE_ID;
-  if (!sid) throw new Error("Falta VITE_STORE_ID en .env del frontend.");
+export async function exportCsvFile(): Promise<Blob> {
+  const storeId = getStoreId();
+  if (!storeId) throw new Error("No se encontró la tienda de la sesión.");
 
-  return httpBlob(`/admin/export/csv?store_id=${encodeURIComponent(sid)}`, {
+  return httpBlob(`/admin/export/csv?store_id=${encodeURIComponent(storeId)}`, {
     method: "GET",
   });
 }
 
-export async function importCsvFile(
-  file: File,
-  storeId: string,
-): Promise<ImportCsvOut> {
-  const sid = storeId || STORE_ID;
-  if (!sid) throw new Error("Falta VITE_STORE_ID en .env del frontend.");
+export async function importCsvFile(file: File): Promise<ImportCsvOut> {
+  const storeId = getStoreId();
+  if (!storeId) throw new Error("No se encontró la tienda de la sesión.");
 
   const form = new FormData();
   form.append("file", file);
 
   return http<ImportCsvOut>(
-    `/admin/import/csv?store_id=${encodeURIComponent(sid)}`,
+    `/admin/import/csv?store_id=${encodeURIComponent(storeId)}`,
     {
       method: "POST",
       body: form,

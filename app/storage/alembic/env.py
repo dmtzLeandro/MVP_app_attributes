@@ -6,8 +6,6 @@ from sqlalchemy import engine_from_config, pool
 from app.core.config import settings
 from app.db.base import Base
 
-# IMPORTANT: import models so Base.metadata is populated for autogenerate
-
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.DB_URL)
 
@@ -28,7 +26,7 @@ def run_migrations_online() -> None:
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
-            compare_type=True,  # útil si cambiás tipos/longitudes
+            compare_type=True,
         )
 
         with context.begin_transaction():

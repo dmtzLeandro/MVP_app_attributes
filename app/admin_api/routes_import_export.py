@@ -1,12 +1,23 @@
+from __future__ import annotations
+
 import csv
 import io
 import logging
 from decimal import Decimal, InvalidOperation
 
-from fastapi import APIRouter, Depends, UploadFile, File, Response, HTTPException
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    Request,
+    Response,
+    UploadFile,
+)
 from sqlalchemy.orm import Session
 
 from app.core.cache import invalidate_store
+from app.core.security import require_panel_user
 from app.db.deps import get_db
 from app.db.models.product import Product
 from app.db.models.product_attribute_value import ProductAttributeValue
@@ -20,6 +31,30 @@ MVP_KEYS = ("ancho_cm", "composicion")
 MAX_CSV_BYTES = 2 * 1024 * 1024
 MAX_ROWS = 10000
 MAX_COMPOSICION_LENGTH = 255
+
+
+def _authorized_store_id(auth: dict, requested_store_id: str | None = None) -> str:
+    store_id = auth.get("store_id")
+    if not isinstance(store_id, str) or not store_id.strip():
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "FORBIDDEN", "message": "Forbidden", "details": None},
+        )
+
+    if requested_store_id and requested_store_id != store_id:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "STORE_ACCESS_FORBIDDEN",
+                "message": "Forbidden",
+                "details": {
+                    "requested_store_id": requested_store_id,
+                    "authorized_store_id": store_id,
+                },
+            },
+        )
+
+    return store_id
 
 
 def csv_error(status_code: int, code: str, message: str, details: dict | None = None):
@@ -128,12 +163,19 @@ def make_csv_reader(text: str) -> csv.DictReader:
 
 
 @router.get("/export/csv")
-def export_csv(store_id: str, db: Session = Depends(get_db)):
+def export_csv(
+    request: Request,
+    store_id: str | None = None,
+    db: Session = Depends(get_db),
+    auth: dict = Depends(require_panel_user),
+):
+    authorized_store_id = _authorized_store_id(auth, store_id)
+
     output = io.StringIO()
     w = csv.writer(output)
     w.writerow(["product_id", "handle", "title", "ancho_cm", "composicion"])
 
-    products = db.query(Product).filter(Product.store_id == store_id).all()
+    products = db.query(Product).filter(Product.store_id == authorized_store_id).all()
     product_ids = [p.product_id for p in products]
 
     attrs_map: dict[tuple[str, str], str] = {}
@@ -141,7 +183,7 @@ def export_csv(store_id: str, db: Session = Depends(get_db)):
         rows = (
             db.query(ProductAttributeValue)
             .filter(
-                ProductAttributeValue.store_id == store_id,
+                ProductAttributeValue.store_id == authorized_store_id,
                 ProductAttributeValue.product_id.in_(product_ids),
                 ProductAttributeValue.attribute_key.in_(list(MVP_KEYS)),
             )
@@ -167,24 +209,28 @@ def export_csv(store_id: str, db: Session = Depends(get_db)):
 
     logger.info(
         "csv_export",
-        extra={"store_id": store_id, "products_count": len(products)},
+        extra={"store_id": authorized_store_id, "products_count": len(products)},
     )
 
     return Response(
         content=output.getvalue(),
         media_type="text/csv; charset=utf-8",
         headers={
-            "Content-Disposition": f'attachment; filename="products_{store_id}.csv"'
+            "Content-Disposition": f'attachment; filename="products_{authorized_store_id}.csv"'
         },
     )
 
 
 @router.post("/import/csv")
 async def import_csv(
-    store_id: str,
+    request: Request,
     file: UploadFile = File(...),
+    store_id: str | None = None,
     db: Session = Depends(get_db),
+    auth: dict = Depends(require_panel_user),
 ):
+    authorized_store_id = _authorized_store_id(auth, store_id)
+
     raw = await file.read()
 
     if not raw:
@@ -291,7 +337,7 @@ async def import_csv(
         logger.info(
             "csv_import",
             extra={
-                "store_id": store_id,
+                "store_id": authorized_store_id,
                 "rows_received": rows_received,
                 "rows_processed": 0,
                 "missing_products_count": 0,
@@ -306,7 +352,10 @@ async def import_csv(
 
     existing_rows = (
         db.query(Product.product_id)
-        .filter(Product.store_id == store_id, Product.product_id.in_(unique_ids))
+        .filter(
+            Product.store_id == authorized_store_id,
+            Product.product_id.in_(unique_ids),
+        )
         .all()
     )
     existing_ids = {r[0] for r in existing_rows}
@@ -315,7 +364,7 @@ async def import_csv(
     existing_attr_rows = (
         db.query(ProductAttributeValue)
         .filter(
-            ProductAttributeValue.store_id == store_id,
+            ProductAttributeValue.store_id == authorized_store_id,
             ProductAttributeValue.product_id.in_(list(existing_ids)),
             ProductAttributeValue.attribute_key.in_(list(MVP_KEYS)),
         )
@@ -347,7 +396,7 @@ async def import_csv(
                 obj = existing_attr_map.get(k)
                 if obj is None:
                     obj = ProductAttributeValue(
-                        store_id=store_id,
+                        store_id=authorized_store_id,
                         product_id=product_id,
                         attribute_key=key,
                         value=value,
@@ -365,12 +414,12 @@ async def import_csv(
         db.rollback()
         raise
 
-    invalidate_store(store_id)
+    invalidate_store(authorized_store_id)
 
     logger.info(
         "csv_import",
         extra={
-            "store_id": store_id,
+            "store_id": authorized_store_id,
             "rows_received": rows_received,
             "rows_processed": processed,
             "missing_products_count": len(missing_products),

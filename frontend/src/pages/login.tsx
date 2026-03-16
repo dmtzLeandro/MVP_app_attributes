@@ -6,7 +6,7 @@ import styles from "./login.module.css";
 export default function LoginPage() {
   const navigate = useNavigate();
 
-  const [username, setUsername] = useState("admin");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [remember, setRemember] = useState(true);
 
@@ -25,7 +25,7 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      await apiLogin({ username, password }, remember);
+      await apiLogin({ email, password }, remember);
       navigate("/productos", { replace: true });
     } catch (err: any) {
       setError(err?.message || "No se pudo iniciar sesión.");
@@ -47,13 +47,14 @@ export default function LoginPage() {
 
         <form onSubmit={onSubmit} className={styles.form}>
           <label className={styles.field}>
-            <span className={styles.label}>Usuario</span>
+            <span className={styles.label}>Email</span>
             <input
               className={styles.input}
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              autoComplete="username"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              autoComplete="email"
               disabled={loading}
+              type="email"
             />
           </label>
 
@@ -87,7 +88,7 @@ export default function LoginPage() {
 
           <button
             type="submit"
-            disabled={loading || !username.trim() || !password.trim()}
+            disabled={loading || !email.trim() || !password.trim()}
             className={styles.submitButton}
           >
             {loading ? "Ingresando..." : "Ingresar"}

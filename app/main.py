@@ -21,13 +21,14 @@ from app.core.errors import (
 )
 from app.core.logging import configure_logging
 from app.core.middleware import trace_id_middleware
-from app.core.oauth_state import create_state, verify_state
-from app.core.security import require_admin
+from app.core.oauth_state import verify_state
+from app.core.security import require_panel_user
 from app.db.deps import get_db
 from app.db.models.store import Store
 from app.services.import_products import seed_products
 from app.services.stores_tokens import migrate_encrypt_tokens, set_store_access_token
 from app.tiendanube_connector.oauth import build_authorize_url, exchange_code_for_token
+from app.core.oauth_state import create_state
 
 configure_logging()
 logger = logging.getLogger("app.main")
@@ -157,12 +158,13 @@ async def auth_callback(
     return {"ok": True, "store_id": store_id, "products_seeded": imported}
 
 
-# Admin routes
-app.include_router(admin_auth_router)  # login sin auth
+# Auth sin protección
+app.include_router(admin_auth_router)
 
-# ✅ IMPORTANTE: products router SIN dependencia global (thumbnails requieren public+sig)
+# Products router mantiene thumbnails públicos firmados.
+# La protección fina se maneja dentro de sus endpoints.
 app.include_router(admin_products_router)
 
-# CSV y jobs siguen protegidos globalmente
-app.include_router(admin_csv_router, dependencies=[Depends(require_admin)])
-app.include_router(admin_jobs_router, dependencies=[Depends(require_admin)])
+# CSV y jobs protegidos por usuario de panel autenticado
+app.include_router(admin_csv_router, dependencies=[Depends(require_panel_user)])
+app.include_router(admin_jobs_router, dependencies=[Depends(require_panel_user)])
