@@ -88,6 +88,12 @@ async def product_thumbnail(
     """
     Endpoint consumido por <img>: no manda Authorization.
     Seguridad: URL firmada (sig) con TTL.
+
+    Estrategia actual:
+    - Si la miniatura ya existe: servirla.
+    - Si no existe: intentar generarla en modo best-effort.
+    - Si el servidor está ocupado o falla la generación: responder rápido
+      con redirect a la imagen original para no bloquear el panel.
     """
     if not verify_thumb_sig(
         store_id=store_id, product_id=product_id, v=v, size=size, sig=sig
@@ -105,7 +111,7 @@ async def product_thumbnail(
         return FileResponse(path=str(p), media_type="image/webp", headers=headers)
 
     try:
-        await ensure_thumbnail(
+        generated = await ensure_thumbnail(
             store_id=store_id,
             product_id=product_id,
             image_url_1024=prod.image_src,
@@ -121,14 +127,26 @@ async def product_thumbnail(
                 "size": size,
             },
         )
-        # Fallback al src original para no romper la UI si falla la miniatura.
-        return RedirectResponse(url=prod.image_src, status_code=307)
+        # Fallback rápido. No cacheamos este redirect para que en futuros hits
+        # pueda volver a intentar servir la miniatura local.
+        return RedirectResponse(
+            url=prod.image_src,
+            status_code=307,
+            headers={"Cache-Control": "no-store"},
+        )
 
-    if p.exists():
+    if generated and generated.exists():
         headers = {"Cache-Control": "public, max-age=86400"}
-        return FileResponse(path=str(p), media_type="image/webp", headers=headers)
+        return FileResponse(
+            path=str(generated), media_type="image/webp", headers=headers
+        )
 
-    return RedirectResponse(url=prod.image_src, status_code=307)
+    # Sin capacidad inmediata o no generada a tiempo: degradar rápido.
+    return RedirectResponse(
+        url=prod.image_src,
+        status_code=307,
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 # -------------------------
