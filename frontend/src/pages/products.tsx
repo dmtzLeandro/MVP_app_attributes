@@ -646,6 +646,10 @@ function Thumb({ url, title }: { url?: string | null; title: string }) {
   const initials = (title || "P").trim().slice(0, 1).toUpperCase();
   const [failed, setFailed] = useState(false);
 
+  useEffect(() => {
+    setFailed(false);
+  }, [url]);
+
   if (!url || failed) {
     return (
       <div className={styles.thumbFallback} aria-hidden="true">
@@ -662,6 +666,7 @@ function Thumb({ url, title }: { url?: string | null; title: string }) {
       className={styles.thumb}
       loading="lazy"
       decoding="async"
+      referrerPolicy="no-referrer"
     />
   );
 }

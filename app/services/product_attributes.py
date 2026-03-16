@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import logging
 
-from sqlalchemy import delete, func, tuple_
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from app.db.models.product_attribute_value import ProductAttributeValue
@@ -43,6 +41,28 @@ def get_attrs_map(
         .all()
     )
     return {(r.product_id, r.attribute_key): r.value for r in rows}
+
+
+def get_attr_rows_map(
+    db: Session, store_id: str, product_ids: list[str]
+) -> dict[tuple[str, str], ProductAttributeValue]:
+    """
+    1 query: (product_id, attribute_key) -> ORM row
+    Útil para upsert batch sin inserts ciegos ni conflictos raros.
+    """
+    if not product_ids:
+        return {}
+
+    rows = (
+        db.query(ProductAttributeValue)
+        .filter(
+            ProductAttributeValue.store_id == store_id,
+            ProductAttributeValue.product_id.in_(product_ids),
+            ProductAttributeValue.attribute_key.in_(list(MVP_KEYS)),
+        )
+        .all()
+    )
+    return {(r.product_id, r.attribute_key): r for r in rows}
 
 
 def upsert_one(
@@ -130,6 +150,7 @@ def batch_upsert(
     product_ids_in_order: list[str] = []
     final_by_product: dict[str, dict[str, str | None]] = {}
 
+    # Si llegan varios cambios para el mismo product_id, prevalece el último.
     for it in items:
         pid = it["product_id"]
         if pid not in existing_ids:
@@ -145,73 +166,47 @@ def batch_upsert(
             "composicion": it.get("composicion"),
         }
 
-    existing_map = get_attrs_map(
+    rows_map = get_attr_rows_map(
         db, store_id=store_id, product_ids=product_ids_in_order
     )
-
-    delete_pairs: list[tuple[str, str]] = []
-    upsert_rows: list[dict[str, str]] = []
 
     for pid in product_ids_in_order:
         incoming_values = final_by_product[pid]
 
         for key in MVP_KEYS:
             incoming = incoming_values[key]
-            existing = existing_map.get((pid, key))
+            map_key = (pid, key)
+            row = rows_map.get(map_key)
 
+            # delete
             if incoming is None or incoming == "":
-                if existing is not None:
-                    delete_pairs.append((pid, key))
+                if row is not None:
+                    db.delete(row)
+                    rows_map.pop(map_key, None)
                     deleted_count += 1
                 continue
 
             incoming_str = str(incoming)
 
-            if existing is None:
-                inserted += 1
-                upsert_rows.append(
-                    {
-                        "store_id": store_id,
-                        "product_id": pid,
-                        "attribute_key": key,
-                        "value": incoming_str,
-                    }
+            # insert
+            if row is None:
+                new_row = ProductAttributeValue(
+                    store_id=store_id,
+                    product_id=pid,
+                    attribute_key=key,
+                    value=incoming_str,
                 )
+                db.add(new_row)
+                rows_map[map_key] = new_row
+                inserted += 1
                 continue
 
-            if existing != incoming_str:
+            # update
+            if row.value != incoming_str:
+                row.value = incoming_str
                 updated += 1
-                upsert_rows.append(
-                    {
-                        "store_id": store_id,
-                        "product_id": pid,
-                        "attribute_key": key,
-                        "value": incoming_str,
-                    }
-                )
 
-    if delete_pairs:
-        db.execute(
-            delete(ProductAttributeValue).where(
-                ProductAttributeValue.store_id == store_id,
-                tuple_(
-                    ProductAttributeValue.product_id,
-                    ProductAttributeValue.attribute_key,
-                ).in_(delete_pairs),
-            )
-        )
-
-    if upsert_rows:
-        stmt = pg_insert(ProductAttributeValue).values(upsert_rows)
-        stmt = stmt.on_conflict_do_update(
-            constraint="uq_store_product_attr",
-            set_={
-                "value": stmt.excluded.value,
-                "updated_at": func.now(),
-            },
-        )
-        db.execute(stmt)
-
+    # Detecta cualquier conflicto real acá y no recién en commit.
     db.flush()
 
     attrs_map = get_attrs_map(db, store_id=store_id, product_ids=product_ids_in_order)

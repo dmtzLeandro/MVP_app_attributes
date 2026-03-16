@@ -6,7 +6,7 @@ from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.admin_api.schemas import (
@@ -100,28 +100,35 @@ async def product_thumbnail(
 
     p = thumb_path(store_id, product_id)
 
-    if not p.exists():
-        try:
-            await ensure_thumbnail(
-                store_id=store_id,
-                product_id=product_id,
-                image_url_1024=prod.image_src,
-                size=size,
-            )
-        except Exception:
-            logger.exception(
-                "thumbnail_generation_failed",
-                extra={
-                    "store_id": store_id,
-                    "product_id": product_id,
-                    "image_src": prod.image_src,
-                    "size": size,
-                },
-            )
-            return Response(status_code=204)
+    if p.exists():
+        headers = {"Cache-Control": "public, max-age=86400"}
+        return FileResponse(path=str(p), media_type="image/webp", headers=headers)
 
-    headers = {"Cache-Control": "public, max-age=86400"}
-    return FileResponse(path=str(p), media_type="image/webp", headers=headers)
+    try:
+        await ensure_thumbnail(
+            store_id=store_id,
+            product_id=product_id,
+            image_url_1024=prod.image_src,
+            size=size,
+        )
+    except Exception:
+        logger.exception(
+            "thumbnail_generation_failed",
+            extra={
+                "store_id": store_id,
+                "product_id": product_id,
+                "image_src": prod.image_src,
+                "size": size,
+            },
+        )
+        # Fallback al src original para no romper la UI si falla la miniatura.
+        return RedirectResponse(url=prod.image_src, status_code=307)
+
+    if p.exists():
+        headers = {"Cache-Control": "public, max-age=86400"}
+        return FileResponse(path=str(p), media_type="image/webp", headers=headers)
+
+    return RedirectResponse(url=prod.image_src, status_code=307)
 
 
 # -------------------------
@@ -574,7 +581,10 @@ def batch_product_attributes(
             ensure_mvp_attribute_definitions(db)
 
             out_data = batch_upsert(
-                db, store_id=store_id, items=items_payload, existing_ids=existing_ids
+                db,
+                store_id=store_id,
+                items=items_payload,
+                existing_ids=existing_ids,
             )
             db.commit()
         except Exception:
