@@ -36,3 +36,5 @@ cryptography>=42.0.0
 
 python-multipart==0.0.9
 Pillow==10.4.0
+
+email-validator
