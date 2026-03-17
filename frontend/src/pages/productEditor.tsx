@@ -23,7 +23,7 @@ export default function ProductEditor() {
       try {
         setLoading(true);
         setErr("");
-        const a = await getProductAttributes(productId, storeId);
+        const a = await getProductAttributes(productId);
         setAncho(a.ancho_cm === null ? "" : String(a.ancho_cm));
         setComp(a.composicion ?? "");
       } catch (e: any) {
@@ -45,7 +45,7 @@ export default function ProductEditor() {
         return;
       }
 
-      await updateProductAttributes(productId, storeId, {
+      await updateProductAttributes(productId, {
         ancho_cm: anchoVal,
         composicion: comp,
       });
@@ -60,7 +60,7 @@ export default function ProductEditor() {
     try {
       setMsg("");
       setErr("");
-      await updateProductAttributes(productId, storeId, {
+      await updateProductAttributes(productId, {
         ancho_cm: null,
         composicion: "",
       });
@@ -76,6 +76,7 @@ export default function ProductEditor() {
     <div style={{ padding: 16, maxWidth: 560 }}>
       <h2>Editar atributos</h2>
       <p style={{ opacity: 0.7 }}>Product ID: {productId}</p>
+      <p style={{ opacity: 0.7 }}>Store: {storeId}</p>
 
       {loading ? (
         <p>Cargando…</p>

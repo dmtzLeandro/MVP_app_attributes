@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { listProducts, getStoreId } from "../api/client";
+import { getStoreId, listProducts } from "../api/client";
 
 export default function Dashboard() {
   const [count, setCount] = useState<number | null>(null);
@@ -8,8 +8,7 @@ export default function Dashboard() {
   useEffect(() => {
     (async () => {
       try {
-        const storeId = getStoreId();
-        const products = await listProducts(storeId);
+        const products = await listProducts();
         setCount(products.length);
       } catch (e: any) {
         setErr(e?.message ?? String(e));

@@ -20,7 +20,7 @@ export default function Preview() {
   useEffect(() => {
     (async () => {
       try {
-        const rows = await listProducts(storeId);
+        const rows = await listProducts();
         setProducts(rows);
       } catch (e: any) {
         setErr(e?.message ?? String(e));
@@ -41,7 +41,7 @@ export default function Preview() {
       try {
         if (pageItems.length === 0) return;
         const ids = pageItems.map((p) => p.product_id);
-        const res = await batchGetAttributes(ids, storeId);
+        const res = await batchGetAttributes(ids);
         const map: Record<string, ProductAttributes> = {};
         for (const it of res.items) map[it.product_id] = it;
         setAttrs((prev) => ({ ...prev, ...map }));
@@ -81,7 +81,10 @@ export default function Preview() {
         <button disabled={safePage === 1} onClick={() => setPage((p) => p - 1)}>
           Anterior
         </button>
-        <button disabled={safePage === totalPages} onClick={() => setPage((p) => p + 1)}>
+        <button
+          disabled={safePage === totalPages}
+          onClick={() => setPage((p) => p + 1)}
+        >
           Siguiente
         </button>
       </div>
