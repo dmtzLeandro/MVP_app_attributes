@@ -1,6 +1,6 @@
 (function () {
   const BACKEND_BASE_URL = "https://mvp-app-attributes.onrender.com";
-  const STORE_ID = "7333786";
+  const STORE_ID = "1984753";
 
   const GRID_SELECTOR = ".js-product-table";
   const ITEM_SELECTOR = ".js-item-product[data-product-id]";

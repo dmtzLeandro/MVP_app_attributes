@@ -48,6 +48,8 @@ origins = [
     "http://127.0.0.1:5174",
     "https://tn-app-frontend-demo.onrender.com",
     "https://yakarplastiendademo.mitiendanube.com",
+    "https://yakarplas.com",
+    "https://www.yakarplas.com",
 ]
 
 app.add_middleware(
