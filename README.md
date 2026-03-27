@@ -21,13 +21,13 @@ Esta app agrega una capa de datos propia sobre Tiendanube para administrar atrib
 
 ## Arquitectura
 Tiendanube (OAuth + API)
-↓
+>
 Backend (FastAPI)
-↓
+>
 PostgreSQL (Render)
-↑
+<
 Frontend (React + Vite)
-↓
+>
 Storefront Script (JS embebido en tienda)
 
 
