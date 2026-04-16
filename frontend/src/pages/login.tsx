@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { apiLogin, isAuthed } from "../api/client";
 import styles from "./login.module.css";
 
 export default function LoginPage() {
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -12,6 +13,14 @@ export default function LoginPage() {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const registerHref = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    const registrationToken = params.get("registration_token");
+    return registrationToken
+      ? `/register?registration_token=${encodeURIComponent(registrationToken)}`
+      : "/register";
+  }, [location.search]);
 
   useEffect(() => {
     if (isAuthed()) {
@@ -94,6 +103,12 @@ export default function LoginPage() {
             {loading ? "Ingresando..." : "Ingresar"}
           </button>
         </form>
+
+        <div className={styles.footerLinks}>
+          <Link to={registerHref} className={styles.linkButton}>
+            ¿No tenés cuenta? Registrarme
+          </Link>
+        </div>
       </div>
     </div>
   );

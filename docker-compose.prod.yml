@@ -67,7 +67,6 @@ services:
       dockerfile: Dockerfile
       args:
         VITE_API_BASE: ${VITE_API_BASE}
-        VITE_STORE_ID: ${VITE_STORE_ID}
     container_name: tn_app_frontend
     restart: unless-stopped
     expose:

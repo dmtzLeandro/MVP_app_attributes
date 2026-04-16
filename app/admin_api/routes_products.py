@@ -66,27 +66,13 @@ def ensure_mvp_attribute_definitions(db: Session) -> None:
     db.flush()
 
 
-def _authorized_store_id(auth: dict, requested_store_id: str | None = None) -> str:
+def _authorized_store_id(auth: dict) -> str:
     store_id = auth.get("store_id")
     if not isinstance(store_id, str) or not store_id.strip():
         raise HTTPException(
             status_code=403,
             detail={"code": "FORBIDDEN", "message": "Forbidden", "details": None},
         )
-
-    if requested_store_id and requested_store_id != store_id:
-        raise HTTPException(
-            status_code=403,
-            detail={
-                "code": "STORE_ACCESS_FORBIDDEN",
-                "message": "Forbidden",
-                "details": {
-                    "requested_store_id": requested_store_id,
-                    "authorized_store_id": store_id,
-                },
-            },
-        )
-
     return store_id
 
 
@@ -263,12 +249,11 @@ def bootstrap_store_from_token():
 @router.post("/products/import")
 async def import_products(
     request: Request,
-    store_id: str | None = None,
     db: Session = Depends(get_db),
     auth: dict = Depends(require_panel_user),
 ):
     rate_limit(request, name="products_import", limit=2, window_seconds=60)
-    authorized_store_id = _authorized_store_id(auth, store_id)
+    authorized_store_id = _authorized_store_id(auth)
 
     store = db.get(Store, authorized_store_id)
     if not store:
@@ -328,12 +313,11 @@ async def import_products(
 @router.post("/products/import/job")
 def import_products_job(
     request: Request,
-    store_id: str | None = None,
     db: Session = Depends(get_db),
     auth: dict = Depends(require_panel_user),
 ):
     rate_limit(request, name="products_import_job", limit=5, window_seconds=60)
-    authorized_store_id = _authorized_store_id(auth, store_id)
+    authorized_store_id = _authorized_store_id(auth)
 
     store = db.get(Store, authorized_store_id)
     if not store:
@@ -369,11 +353,10 @@ def import_products_job(
 @router.get("/products", response_model=list[ProductOut])
 def list_products(
     request: Request,
-    store_id: str | None = None,
     db: Session = Depends(get_db),
     auth: dict = Depends(require_panel_user),
 ):
-    authorized_store_id = _authorized_store_id(auth, store_id)
+    authorized_store_id = _authorized_store_id(auth)
 
     rows = (
         db.query(Product)
@@ -417,11 +400,10 @@ def list_products(
 @router.get("/products/{product_id}/attributes", response_model=ProductAttributesOut)
 def get_attributes(
     product_id: str,
-    store_id: str | None = None,
     db: Session = Depends(get_db),
     auth: dict = Depends(require_panel_user),
 ):
-    authorized_store_id = _authorized_store_id(auth, store_id)
+    authorized_store_id = _authorized_store_id(auth)
 
     prod = db.get(Product, (authorized_store_id, product_id))
     if not prod:
@@ -456,11 +438,10 @@ def get_attributes(
 def upsert_attributes_endpoint(
     product_id: str,
     payload: ProductAttributesIn,
-    store_id: str | None = None,
     db: Session = Depends(get_db),
     auth: dict = Depends(require_panel_user),
 ):
-    authorized_store_id = _authorized_store_id(auth, store_id)
+    authorized_store_id = _authorized_store_id(auth)
 
     prod = db.get(Product, (authorized_store_id, product_id))
     if not prod:
@@ -516,7 +497,6 @@ def batch_product_attributes(
     authorized_store_id = _authorized_store_id(auth)
 
     if isinstance(payload, ProductAttributesBatchGetIn):
-        _authorized_store_id(auth, payload.store_id)
         product_ids = list(dict.fromkeys(payload.product_ids))
 
         cache_key = build_batch_get_key(
@@ -556,7 +536,6 @@ def batch_product_attributes(
 
     if isinstance(payload, ProductAttributesBatchUpsertIn):
         rate_limit(request, name="attrs_batch_upsert", limit=60, window_seconds=60)
-        _authorized_store_id(auth, payload.store_id)
 
         idem = get_idempotency_key(request)
         idem_cache_key: str | None = None

@@ -168,8 +168,8 @@ POST /admin/storefront/attributes/batch
 
 Y renderiza atributos en la grilla de productos.
 
->  Actualmente el `store_id` se define en el script (MVP).  
-> En futuras versiones será dinámico.
+> El script storefront ya no trae un `store_id` hardcodeado.
+> La tienda se inyecta en runtime vía `window.TN_APP_ATTRS_CONFIG.storeId` o `data-store-id` en el tag del script.
 
 -------------------------------------------------------------
 
@@ -251,6 +251,8 @@ npm run dev
 
 Backend
 DB_URL=
+APP_URL=
+FRONTEND_APP_URL=
 TN_CLIENT_ID=
 TN_CLIENT_SECRET=
 TN_OAUTH_BASE=
@@ -259,10 +261,3 @@ JWT_SECRET=
 
 Frontend
 VITE_API_BASE=
-VITE_STORE_ID=
-
-
-
-
-
-

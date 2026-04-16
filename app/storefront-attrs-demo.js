@@ -1,6 +1,17 @@
 (function () {
-  const BACKEND_BASE_URL = "https://mvp-app-attributes.onrender.com";
-  const STORE_ID = "1984753";
+  const script = document.currentScript;
+  const runtimeConfig = window.TN_APP_ATTRS_CONFIG || {};
+
+  const BACKEND_BASE_URL =
+    runtimeConfig.backendBaseUrl ||
+    script?.dataset.backendBaseUrl ||
+    "https://mvp-app-attributes.onrender.com";
+
+  const STORE_ID =
+    runtimeConfig.storeId ||
+    script?.dataset.storeId ||
+    document.body?.dataset.tnAppStoreId ||
+    null;
 
   const GRID_SELECTOR = ".js-product-table";
   const ITEM_SELECTOR = ".js-item-product[data-product-id]";
@@ -60,6 +71,7 @@
 
   async function fetchAttributes(productIds) {
     if (!productIds.length) return { ok: true, items: [] };
+    if (!STORE_ID) throw new Error("Missing storefront storeId configuration");
 
     const response = await fetch(
       `${BACKEND_BASE_URL}/admin/storefront/attributes/batch`,
@@ -170,6 +182,10 @@
   }
 
   function init() {
+    if (!STORE_ID) {
+      console.warn("[tn-app-attrs] Missing storeId in runtime config");
+      return;
+    }
     if (!document.querySelector(`${GRID_SELECTOR} ${ITEM_SELECTOR}`)) return;
     ensureStyles();
     processItems(document);

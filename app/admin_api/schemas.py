@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
 from typing import Literal, Optional
+
+from pydantic import BaseModel, Field
 
 
 class ProductOut(BaseModel):
@@ -25,7 +26,6 @@ class ProductAttributesOut(BaseModel):
 
 class ProductAttributesBatchGetIn(BaseModel):
     mode: Literal["get"] = "get"
-    store_id: str
     product_ids: list[str]
 
 
@@ -37,7 +37,6 @@ class ProductAttributesBatchUpsertItemIn(BaseModel):
 
 class ProductAttributesBatchUpsertIn(BaseModel):
     mode: Literal["upsert"] = "upsert"
-    store_id: str
     items: list[ProductAttributesBatchUpsertItemIn]
 
 

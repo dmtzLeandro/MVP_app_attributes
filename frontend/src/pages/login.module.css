@@ -109,6 +109,19 @@
   line-height: 1.45;
 }
 
+.successBox {
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(22, 163, 74, 0.06);
+  border: 1px solid rgba(22, 163, 74, 0.16);
+}
+
+.successText {
+  color: #166534;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
 .submitButton {
   height: 44px;
   margin-top: 4px;
@@ -135,6 +148,30 @@
   opacity: 0.5;
   cursor: not-allowed;
   transform: none;
+}
+
+.footerLinks {
+  margin-top: 18px;
+  display: flex;
+  justify-content: center;
+}
+
+.linkButton {
+  font-size: 13px;
+  font-weight: 600;
+  color: #16324f;
+  text-decoration: none;
+}
+
+.linkButton:hover {
+  text-decoration: underline;
+}
+
+.inlineLink {
+  color: #166534;
+  font-weight: 700;
+  text-decoration: underline;
+  word-break: break-all;
 }
 
 @media (max-width: 560px) {

@@ -58,6 +58,22 @@ type LoginOut = {
   email: string;
 };
 
+export type RegisterIn = {
+  registration_token: string;
+  email: string;
+  password: string;
+  password_confirm: string;
+};
+
+export type RegisterOut = {
+  ok: boolean;
+  pending: boolean;
+  email: string;
+  store_id: string;
+  verification_sent: boolean;
+  verification_url: string | null;
+};
+
 type SessionUser = {
   email: string;
   store_id: string;
@@ -294,6 +310,14 @@ export async function apiLogin(
   return out;
 }
 
+export async function apiRegister(payload: RegisterIn): Promise<RegisterOut> {
+  return http<RegisterOut>("/admin/auth/register", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
 // ------------------------------------------------------
 // MOJIBAKE
 // ------------------------------------------------------
@@ -311,15 +335,16 @@ export async function listProducts(): Promise<Product[]> {
 export async function batchGetAttributes(
   productIds: string[],
 ): Promise<BatchGetOut> {
-  const storeId = getStoreId();
-  if (!storeId) throw new Error("No se encontró la tienda de la sesión.");
+  const sessionUser = getSessionUser();
+  if (!sessionUser?.store_id) {
+    throw new Error("No se encontró la tienda de la sesión.");
+  }
 
   return http<BatchGetOut>("/admin/products/attributes/batch", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       mode: "get",
-      store_id: storeId,
       product_ids: productIds,
     }),
   });
@@ -328,8 +353,10 @@ export async function batchGetAttributes(
 export async function batchUpsertAttributes(
   items: BatchUpsertInItem[],
 ): Promise<BatchUpsertOut> {
-  const storeId = getStoreId();
-  if (!storeId) throw new Error("No se encontró la tienda de la sesión.");
+  const sessionUser = getSessionUser();
+  if (!sessionUser?.store_id) {
+    throw new Error("No se encontró la tienda de la sesión.");
+  }
 
   const idem = crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
 
@@ -341,7 +368,6 @@ export async function batchUpsertAttributes(
     },
     body: JSON.stringify({
       mode: "upsert",
-      store_id: storeId,
       items,
     }),
   });
@@ -350,11 +376,13 @@ export async function batchUpsertAttributes(
 export async function getProductAttributes(
   productId: string,
 ): Promise<ProductAttributes> {
-  const storeId = getStoreId();
-  if (!storeId) throw new Error("No se encontró la tienda de la sesión.");
+  const sessionUser = getSessionUser();
+  if (!sessionUser?.store_id) {
+    throw new Error("No se encontró la tienda de la sesión.");
+  }
 
   return http<ProductAttributes>(
-    `/admin/products/${encodeURIComponent(productId)}/attributes?store_id=${encodeURIComponent(storeId)}`,
+    `/admin/products/${encodeURIComponent(productId)}/attributes`,
   );
 }
 
@@ -362,11 +390,13 @@ export async function updateProductAttributes(
   productId: string,
   payload: { ancho_cm: number | null; composicion: string | null },
 ): Promise<{ ok: boolean }> {
-  const storeId = getStoreId();
-  if (!storeId) throw new Error("No se encontró la tienda de la sesión.");
+  const sessionUser = getSessionUser();
+  if (!sessionUser?.store_id) {
+    throw new Error("No se encontró la tienda de la sesión.");
+  }
 
   return http<{ ok: boolean }>(
-    `/admin/products/${encodeURIComponent(productId)}/attributes?store_id=${encodeURIComponent(storeId)}`,
+    `/admin/products/${encodeURIComponent(productId)}/attributes`,
     {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -379,26 +409,27 @@ export async function updateProductAttributes(
 // CSV
 // ------------------------------------------------------
 export async function exportCsvFile(): Promise<Blob> {
-  const storeId = getStoreId();
-  if (!storeId) throw new Error("No se encontró la tienda de la sesión.");
+  const sessionUser = getSessionUser();
+  if (!sessionUser?.store_id) {
+    throw new Error("No se encontró la tienda de la sesión.");
+  }
 
-  return httpBlob(`/admin/export/csv?store_id=${encodeURIComponent(storeId)}`, {
+  return httpBlob("/admin/export/csv", {
     method: "GET",
   });
 }
 
 export async function importCsvFile(file: File): Promise<ImportCsvOut> {
-  const storeId = getStoreId();
-  if (!storeId) throw new Error("No se encontró la tienda de la sesión.");
+  const sessionUser = getSessionUser();
+  if (!sessionUser?.store_id) {
+    throw new Error("No se encontró la tienda de la sesión.");
+  }
 
   const form = new FormData();
   form.append("file", file);
 
-  return http<ImportCsvOut>(
-    `/admin/import/csv?store_id=${encodeURIComponent(storeId)}`,
-    {
-      method: "POST",
-      body: form,
-    },
-  );
+  return http<ImportCsvOut>("/admin/import/csv", {
+    method: "POST",
+    body: form,
+  });
 }

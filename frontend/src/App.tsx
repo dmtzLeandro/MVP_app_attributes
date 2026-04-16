@@ -7,6 +7,7 @@ import Preview from "./pages/preview";
 import ProductEditor from "./pages/productEditor";
 import Products from "./pages/products";
 import LoginPage from "./pages/login";
+import RegisterPage from "./pages/register";
 
 function PrivateRoute({ children }: { children: ReactNode }) {
   if (!isAuthed()) return <Navigate to="/login" replace />;
@@ -17,6 +18,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/register" element={<RegisterPage />} />
 
       <Route
         path="/"
