@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" fill="none">
+  <rect width="64" height="64" rx="10" fill="#031B66"/>
+  <rect x="7" y="7" width="50" height="50" rx="6" fill="#F7F8FC"/>
+
+  <rect x="11" y="11" width="17" height="17" rx="3" fill="#C9D4FF"/>
+  <path d="M15.2 16.1L18.4 13.9C18.8 13.6 19.3 13.5 19.8 13.6L21.1 14C21.6 14.2 22.1 14.2 22.6 14L23.9 13.6C24.4 13.5 24.9 13.6 25.3 13.9L28.5 16.1C28.8 16.3 28.9 16.8 28.6 17.1L26.8 18.8C26.6 19 26.4 19.1 26.2 19.1V24.4C26.2 25 25.7 25.5 25.1 25.5H18.6C18 25.5 17.5 25 17.5 24.4V19.1C17.3 19.1 17.1 19 16.9 18.8L15.1 17.1C14.8 16.8 14.9 16.3 15.2 16.1Z" fill="#2F5BFF"/>
+
+  <rect x="31.5" y="14.5" width="18.5" height="4" rx="2" fill="#98A3B8"/>
+  <rect x="31.5" y="21" width="12.5" height="3.5" rx="1.75" fill="#C2C8D6"/>
+
+  <rect x="7" y="31" width="50" height="1" fill="#D8DDE8"/>
+
+  <rect x="11.5" y="37" width="38" height="3.2" rx="1.6" fill="#C9CFDB"/>
+  <rect x="11.5" y="37" width="18.5" height="3.2" rx="1.6" fill="#2F5BFF"/>
+  <circle cx="30" cy="38.6" r="3.2" fill="#2F5BFF"/>
+
+  <rect x="11.5" y="44" width="38" height="3.2" rx="1.6" fill="#C9CFDB"/>
+  <rect x="11.5" y="44" width="27" height="3.2" rx="1.6" fill="#20C997"/>
+  <circle cx="38.5" cy="45.6" r="3.2" fill="#20C997"/>
+
+  <rect x="11.5" y="51" width="38" height="3.2" rx="1.6" fill="#C9CFDB"/>
+  <rect x="11.5" y="51" width="17" height="3.2" rx="1.6" fill="#6C4CF1"/>
+  <circle cx="28.5" cy="52.6" r="3.2" fill="#6C4CF1"/>
+</svg>
