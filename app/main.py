@@ -42,18 +42,17 @@ app = FastAPI(
     openapi_url=None if is_production else "/openapi.json",
 )
 
-origins = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-    "http://localhost:5174",
-    "http://127.0.0.1:5174",
-    "http://localhost:8000",
-    "http://127.0.0.1:8000",
-    "https://tn-app-frontend-demo.onrender.com",
-    "https://yakarplastiendademo.mitiendanube.com",
-    "https://yakarplas.com",
-    "https://www.yakarplas.com",
-]
+def _build_cors_origins(frontend_app_url: str | None) -> list[str]:
+    candidates = ["http://localhost:5173", frontend_app_url]
+    normalized = [
+        value.strip().rstrip("/")
+        for value in candidates
+        if value and value.strip().rstrip("/")
+    ]
+    return list(dict.fromkeys(normalized))
+
+
+origins = _build_cors_origins(settings.FRONTEND_APP_URL)
 
 app.add_middleware(
     CORSMiddleware,
