@@ -1,5 +1,32 @@
+from datetime import datetime, timedelta
+
+import pytest
+
+from app.admin_api import routes_auth
 from app.db.models.panel_user_password_reset import PanelUserPasswordReset
 from app.db.session import SessionLocal
+
+
+@pytest.fixture(autouse=True)
+def isolate_password_reset(monkeypatch):
+    monkeypatch.setattr(routes_auth, "rate_limit", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        routes_auth,
+        "email_provider_is_configured",
+        lambda: False,
+    )
+
+
+def request_password_reset(client, email: str) -> str:
+    response = client.post(
+        "/admin/auth/forgot-password",
+        json={"email": email},
+    )
+    assert response.status_code == 200, response.text
+
+    reset_url = response.json()["reset_url"]
+    assert reset_url
+    return reset_url.rsplit("token=", 1)[1]
 
 
 def test_forgot_password_existing_user_returns_ok(client, seeded_panel_user):
@@ -40,16 +67,7 @@ def test_forgot_password_unknown_email_does_not_leak(client):
 
 
 def test_reset_password_valid_token_changes_password(client, seeded_panel_user):
-    forgot = client.post(
-        "/admin/auth/forgot-password",
-        json={"email": seeded_panel_user["email"]},
-    )
-    assert forgot.status_code == 200, forgot.text
-
-    reset_url = forgot.json()["reset_url"]
-    assert reset_url
-
-    token = reset_url.split("token=")[1]
+    token = request_password_reset(client, seeded_panel_user["email"])
 
     reset = client.post(
         "/admin/auth/reset-password",
@@ -60,6 +78,20 @@ def test_reset_password_valid_token_changes_password(client, seeded_panel_user):
         },
     )
     assert reset.status_code == 200, reset.text
+
+    db = SessionLocal()
+    try:
+        row = (
+            db.query(PanelUserPasswordReset)
+            .filter(PanelUserPasswordReset.email == seeded_panel_user["email"])
+            .order_by(PanelUserPasswordReset.id.desc())
+            .first()
+        )
+        assert row is not None
+        assert row.is_used is True
+        assert row.used_at is not None
+    finally:
+        db.close()
 
     login = client.post(
         "/admin/auth/login",
@@ -72,13 +104,7 @@ def test_reset_password_valid_token_changes_password(client, seeded_panel_user):
 
 
 def test_reset_password_reused_token_fails(client, seeded_panel_user):
-    forgot = client.post(
-        "/admin/auth/forgot-password",
-        json={"email": seeded_panel_user["email"]},
-    )
-    assert forgot.status_code == 200, forgot.text
-
-    token = forgot.json()["reset_url"].split("token=")[1]
+    token = request_password_reset(client, seeded_panel_user["email"])
 
     first = client.post(
         "/admin/auth/reset-password",
@@ -99,3 +125,76 @@ def test_reset_password_reused_token_fails(client, seeded_panel_user):
         },
     )
     assert second.status_code == 400, second.text
+    assert second.json()["error"]["code"] == "RESET_TOKEN_ALREADY_USED"
+
+
+def test_reset_password_expired_token_fails(client, seeded_panel_user):
+    token = request_password_reset(client, seeded_panel_user["email"])
+
+    db = SessionLocal()
+    try:
+        row = (
+            db.query(PanelUserPasswordReset)
+            .filter(PanelUserPasswordReset.email == seeded_panel_user["email"])
+            .order_by(PanelUserPasswordReset.id.desc())
+            .first()
+        )
+        assert row is not None
+        row.reset_expires_at = datetime.utcnow() - timedelta(seconds=1)
+        db.commit()
+    finally:
+        db.close()
+
+    response = client.post(
+        "/admin/auth/reset-password",
+        json={
+            "token": token,
+            "password": "new-password-123",
+            "password_confirm": "new-password-123",
+        },
+    )
+
+    assert response.status_code == 400, response.text
+    assert response.json()["error"]["code"] == "RESET_TOKEN_EXPIRED"
+
+
+def test_reset_password_unknown_token_fails(client):
+    response = client.post(
+        "/admin/auth/reset-password",
+        json={
+            "token": "nonexistent-reset-token",
+            "password": "new-password-123",
+            "password_confirm": "new-password-123",
+        },
+    )
+
+    assert response.status_code == 400, response.text
+    assert response.json()["error"]["code"] == "INVALID_RESET_TOKEN"
+
+
+def test_new_reset_invalidates_previous_token(client, seeded_panel_user):
+    first_token = request_password_reset(client, seeded_panel_user["email"])
+    second_token = request_password_reset(client, seeded_panel_user["email"])
+
+    previous = client.post(
+        "/admin/auth/reset-password",
+        json={
+            "token": first_token,
+            "password": "new-password-123",
+            "password_confirm": "new-password-123",
+        },
+    )
+
+    assert previous.status_code == 400, previous.text
+    assert previous.json()["error"]["code"] == "RESET_TOKEN_ALREADY_USED"
+
+    latest = client.post(
+        "/admin/auth/reset-password",
+        json={
+            "token": second_token,
+            "password": "new-password-123",
+            "password_confirm": "new-password-123",
+        },
+    )
+
+    assert latest.status_code == 200, latest.text

@@ -435,7 +435,12 @@ def forgot_password(
 
     generic_message = "If the email exists, a reset link has been sent."
 
-    user = db.query(PanelUser).filter(PanelUser.email == payload.email).first()
+    user = (
+        db.query(PanelUser)
+        .filter(PanelUser.email == payload.email)
+        .with_for_update()
+        .first()
+    )
     if user is None or not user.is_active:
         return ForgotPasswordOut(
             ok=True,
@@ -520,38 +525,46 @@ def reset_password(
             status_code=400,
             detail={
                 "code": "INVALID_RESET_TOKEN",
-                "message": "Invalid reset token",
+                "message": "El enlace de recuperación no es válido.",
                 "details": None,
             },
         )
+
+    user = (
+        db.query(PanelUser)
+        .filter(PanelUser.id == row.panel_user_id)
+        .with_for_update()
+        .first()
+    )
+    if user is None or not user.is_active:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "PANEL_USER_NOT_AVAILABLE",
+                "message": "La cuenta no está disponible.",
+                "details": None,
+            },
+        )
+
+    db.refresh(row)
 
     if row.is_used:
         raise HTTPException(
             status_code=400,
             detail={
                 "code": "RESET_TOKEN_ALREADY_USED",
-                "message": "Reset token already used",
+                "message": "Este enlace de recuperación ya fue utilizado.",
                 "details": None,
             },
         )
 
-    if _utcnow() > row.reset_expires_at:
+    now = _utcnow()
+    if now > row.reset_expires_at:
         raise HTTPException(
             status_code=400,
             detail={
                 "code": "RESET_TOKEN_EXPIRED",
-                "message": "Reset token expired",
-                "details": None,
-            },
-        )
-
-    user = db.get(PanelUser, row.panel_user_id)
-    if user is None or not user.is_active:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "code": "PANEL_USER_NOT_AVAILABLE",
-                "message": "Panel user is not available",
+                "message": "El enlace de recuperación expiró. Solicitá uno nuevo.",
                 "details": None,
             },
         )
@@ -559,7 +572,7 @@ def reset_password(
     user.password_hash = hash_password(payload.password)
 
     row.is_used = True
-    row.used_at = _utcnow()
+    row.used_at = now
 
     other_rows = (
         db.query(PanelUserPasswordReset)
@@ -572,7 +585,7 @@ def reset_password(
     )
     for item in other_rows:
         item.is_used = True
-        item.used_at = _utcnow()
+        item.used_at = now
 
     db.commit()
 
