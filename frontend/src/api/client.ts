@@ -5,6 +5,18 @@ export type Product = {
   thumbnail_url?: string | null;
 };
 
+export type ProductsSyncOut = {
+  ok: boolean;
+  store_id: string;
+  inserted: number;
+  updated: number;
+  unchanged: number;
+  deactivated: number;
+  reactivated: number;
+  total_remote: number;
+  total_local_before: number;
+};
+
 export type ProductAttributes = {
   product_id: string;
   ancho_cm: number | null;
@@ -428,6 +440,12 @@ export function fixMojibake(s: string): string {
 // ------------------------------------------------------
 export async function listProducts(): Promise<Product[]> {
   return http<Product[]>("/admin/products");
+}
+
+export async function apiSyncProducts(): Promise<ProductsSyncOut> {
+  return http<ProductsSyncOut>("/admin/products/sync", {
+    method: "POST",
+  });
 }
 
 export async function batchGetAttributes(

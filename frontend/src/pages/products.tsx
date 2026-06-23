@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  apiSyncProducts,
   batchGetAttributes,
   batchUpsertAttributes,
   exportCsvFile,
@@ -87,6 +88,7 @@ export default function ProductsPage() {
   const [saving, setSaving] = useState(false);
   const [exportingCsv, setExportingCsv] = useState(false);
   const [importingCsv, setImportingCsv] = useState(false);
+  const [syncingCatalog, setSyncingCatalog] = useState(false);
 
   const [err, setErr] = useState<string>("");
   const [toast, setToast] = useState<string | null>(null);
@@ -297,6 +299,46 @@ export default function ProductsPage() {
     }
   }
 
+  async function handleSyncCatalog() {
+    if (pendingCount > 0) {
+      setErr(
+        "Guardá o descartá los cambios pendientes antes de sincronizar el catálogo.",
+      );
+      return;
+    }
+
+    try {
+      setSyncingCatalog(true);
+      setErr("");
+
+      const result = await apiSyncProducts();
+
+      setLoading(true);
+      const rows = await listProducts();
+
+      setProducts(rows);
+      setSelected(new Set());
+      setPage(1);
+
+      showToast(
+        `Catálogo sincronizado: ${result.total_remote} producto(s) ` +
+          `• ${result.inserted} nuevo(s) ` +
+          `• ${result.updated} actualizado(s) ` +
+          `• ${result.reactivated} reactivado(s) ` +
+          `• ${result.deactivated} desactivado(s).`,
+      );
+    } catch (e: unknown) {
+      setErr(
+        e instanceof Error
+          ? e.message
+          : "No se pudo sincronizar el catálogo con Tiendanube.",
+      );
+    } finally {
+      setLoading(false);
+      setSyncingCatalog(false);
+    }
+  }
+
   function openBulk() {
     if (selected.size === 0) {
       showToast("Seleccioná al menos un producto.");
@@ -384,7 +426,21 @@ export default function ProductsPage() {
           <div className={styles.actions}>
             <button
               className={styles.ghostButton}
-              disabled={exportingCsv || importingCsv}
+              disabled={
+                syncingCatalog ||
+                exportingCsv ||
+                importingCsv ||
+                saving ||
+                pendingCount > 0
+              }
+              onClick={handleSyncCatalog}
+            >
+              {syncingCatalog ? "Sincronizando..." : "Sincronizar catálogo"}
+            </button>
+
+            <button
+              className={styles.ghostButton}
+              disabled={exportingCsv || importingCsv || syncingCatalog}
               onClick={handleExportCsv}
             >
               {exportingCsv ? "Exportando..." : "Exportar CSV"}
@@ -392,7 +448,7 @@ export default function ProductsPage() {
 
             <button
               className={styles.ghostButton}
-              disabled={importingCsv || exportingCsv}
+              disabled={importingCsv || exportingCsv || syncingCatalog}
               onClick={openCsvImport}
             >
               Importar CSV
@@ -400,7 +456,7 @@ export default function ProductsPage() {
 
             <button
               className={styles.ghostButton}
-              disabled={selected.size === 0}
+              disabled={selected.size === 0 || syncingCatalog}
               onClick={openBulk}
             >
               Aplicar a selección
@@ -408,7 +464,7 @@ export default function ProductsPage() {
 
             <button
               className={styles.ghostButton}
-              disabled={pendingCount === 0 || saving}
+              disabled={pendingCount === 0 || saving || syncingCatalog}
               onClick={discardAllDraft}
             >
               Descartar
@@ -416,7 +472,7 @@ export default function ProductsPage() {
 
             <button
               className={styles.primaryButton}
-              disabled={pendingCount === 0 || saving}
+              disabled={pendingCount === 0 || saving || syncingCatalog}
               onClick={saveAll}
             >
               {saving ? "Guardando..." : `Guardar (${pendingCount})`}
