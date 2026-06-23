@@ -108,6 +108,9 @@ export default function LoginPage() {
           <Link to="/forgot-password" className={styles.linkButton}>
             Olvidé mi contraseña
           </Link>
+          <Link to="/install" className={styles.linkButton}>
+            Instalar aplicación
+          </Link>
           <Link to={registerHref} className={styles.linkButton}>
             ¿No tenés cuenta? Registrarme
           </Link>

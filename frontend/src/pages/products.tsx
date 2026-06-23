@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   apiSyncProducts,
   batchGetAttributes,
   batchUpsertAttributes,
+  clearAuth,
   exportCsvFile,
   fixMojibake,
   getSessionEmail,
@@ -75,6 +77,8 @@ function getFinalValues(
 }
 
 export default function ProductsPage() {
+  const navigate = useNavigate();
+
   const [products, setProducts] = useState<Product[]>([]);
   const [attrs, setAttrs] = useState<Record<string, ProductAttributes>>({});
   const [draft, setDraft] = useState<Record<string, DraftRow>>({});
@@ -233,6 +237,11 @@ export default function ProductsPage() {
   function discardAllDraft() {
     setDraft({});
     showToast("Cambios descartados.");
+  }
+
+  function handleLogout() {
+    clearAuth();
+    navigate("/login", { replace: true });
   }
 
   async function saveAll() {
@@ -476,6 +485,14 @@ export default function ProductsPage() {
               onClick={saveAll}
             >
               {saving ? "Guardando..." : `Guardar (${pendingCount})`}
+            </button>
+
+            <button
+              type="button"
+              className={styles.ghostButton}
+              onClick={handleLogout}
+            >
+              Cerrar sesión
             </button>
           </div>
         </div>

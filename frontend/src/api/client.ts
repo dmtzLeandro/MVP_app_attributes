@@ -111,6 +111,10 @@ export type ResetPasswordOut = {
   store_id: string;
 };
 
+export type InstallOut = {
+  authorize_url: string;
+};
+
 type SessionUser = {
   email: string;
   store_id: string;
@@ -280,6 +284,7 @@ function fixErrorMessage(data: any): string {
 
 function isPublicAuthPath(path: string): boolean {
   const publicPaths = [
+    "/auth/install",
     "/admin/auth/login",
     "/admin/auth/register",
     "/admin/auth/forgot-password",
@@ -445,6 +450,12 @@ export async function listProducts(): Promise<Product[]> {
 export async function apiSyncProducts(): Promise<ProductsSyncOut> {
   return http<ProductsSyncOut>("/admin/products/sync", {
     method: "POST",
+  });
+}
+
+export async function apiGetInstallUrl(): Promise<InstallOut> {
+  return http<InstallOut>("/auth/install", {
+    method: "GET",
   });
 }
 

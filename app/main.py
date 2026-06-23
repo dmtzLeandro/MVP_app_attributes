@@ -5,6 +5,7 @@ import logging
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -24,6 +25,7 @@ from app.core.middleware import trace_id_middleware
 from app.core.oauth_state import create_registration_token, create_state, verify_state
 from app.core.security import require_panel_user
 from app.db.deps import get_db
+from app.db.models.panel_user import PanelUser
 from app.db.models.store import Store
 from app.services.import_products import seed_products
 from app.services.stores_tokens import migrate_encrypt_tokens, set_store_access_token
@@ -161,20 +163,21 @@ async def auth_callback(
     )
 
     frontend_base_url = (settings.FRONTEND_APP_URL or settings.APP_URL).rstrip("/")
-    registration_token = create_registration_token(store_id=store_id, ttl_seconds=3600)
-    register_url = (
-        f"{frontend_base_url}/register?registration_token={registration_token}"
-    )
-    login_url = f"{frontend_base_url}/login"
+    panel_user = db.query(PanelUser).filter(PanelUser.store_id == store_id).first()
 
-    return {
-        "ok": True,
-        "store_id": store_id,
-        "products_seeded": imported,
-        "registration_token": registration_token,
-        "register_url": register_url,
-        "login_url": login_url,
-    }
+    if panel_user is not None:
+        redirect_url = f"{frontend_base_url}/login"
+    else:
+        registration_token = create_registration_token(
+            store_id=store_id,
+            ttl_seconds=3600,
+        )
+        redirect_url = (
+            f"{frontend_base_url}/register"
+            f"?registration_token={registration_token}"
+        )
+
+    return RedirectResponse(url=redirect_url, status_code=303)
 
 
 app.include_router(admin_auth_router)
