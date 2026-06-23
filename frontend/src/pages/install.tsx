@@ -37,10 +37,10 @@ export default function InstallPage() {
       <div className={styles.card}>
         <div className={styles.header}>
           <div className={styles.eyebrow}>TN Attributes App</div>
-          <h1 className={styles.title}>Instalar aplicación</h1>
+          <h1 className={styles.title}>Instalá la aplicación</h1>
           <p className={styles.subtitle}>
-            Conectá tu tienda de Tiendanube para importar el catálogo y comenzar
-            a administrar sus atributos.
+            Conectá tu Tiendanube para importar el catálogo y comenzar a
+            administrar sus atributos.
           </p>
         </div>
 

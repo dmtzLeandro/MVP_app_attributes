@@ -40,7 +40,9 @@ export default function RegisterPage() {
     setVerificationUrl(null);
 
     if (!registrationToken) {
-      setError("No se encontró un contexto válido para completar el registro.");
+      setError(
+        "No encontramos un enlace válido para crear la cuenta. Instalá la aplicación nuevamente o solicitá un nuevo acceso.",
+      );
       return;
     }
 
@@ -124,7 +126,7 @@ export default function RegisterPage() {
           {!registrationToken && (
             <div className={styles.errorBox}>
               <div className={styles.errorText}>
-                No se detectó un enlace válido para completar el alta. Volvé a instalar la app o usá el enlace de registro generado por el backend.
+                No encontramos un enlace válido para crear la cuenta. Instalá la aplicación nuevamente o solicitá un nuevo acceso.
               </div>
             </div>
           )}
