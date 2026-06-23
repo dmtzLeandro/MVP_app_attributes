@@ -25,9 +25,9 @@ from app.db.models.panel_user_registration import PanelUserRegistration
 from app.db.models.store import Store
 from app.services.email import (
     EmailDeliveryError,
+    email_provider_is_configured,
     send_password_reset_email,
     send_registration_verification_email,
-    smtp_is_configured,
 )
 
 logger = logging.getLogger(__name__)
@@ -261,7 +261,7 @@ def register(
     )
 
     email_sent = False
-    if smtp_is_configured():
+    if email_provider_is_configured():
         try:
             send_registration_verification_email(
                 to_email=payload.email,
@@ -279,7 +279,7 @@ def register(
     else:
         logger.log(
             logging.ERROR if is_production else logging.WARNING,
-            "registration_verification_email_not_configured",
+            "registration_email_provider_not_configured",
             extra={"app_env": app_env},
         )
 
@@ -464,13 +464,32 @@ def forgot_password(
     frontend_base = settings.FRONTEND_APP_URL or settings.APP_URL
     reset_url = f"{frontend_base}/reset-password?token={raw_token}"
 
+    app_env = settings.APP_ENV.strip().lower()
+    is_production = app_env == "production"
+
     reset_sent = False
     response_reset_url: str | None = None
 
-    if smtp_is_configured():
-        send_password_reset_email(to_email=user.email, reset_url=reset_url)
-        reset_sent = True
-    elif settings.APP_ENV.lower() != "production":
+    if email_provider_is_configured():
+        try:
+            send_password_reset_email(to_email=user.email, reset_url=reset_url)
+            reset_sent = True
+        except EmailDeliveryError as exc:
+            logger.error(
+                "password_reset_email_failed",
+                extra={
+                    "app_env": app_env,
+                    "delivery_error": exc.reason,
+                },
+            )
+    else:
+        logger.log(
+            logging.ERROR if is_production else logging.WARNING,
+            "password_reset_email_provider_not_configured",
+            extra={"app_env": app_env},
+        )
+
+    if not reset_sent and not is_production:
         response_reset_url = reset_url
 
     return ForgotPasswordOut(
