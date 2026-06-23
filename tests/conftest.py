@@ -68,6 +68,7 @@ def seeded_panel_user() -> dict[str, str]:
                 store_id=store_id, access_token="encrypted-token", status="installed"
             )
             db.add(store)
+            db.flush()
 
         user = db.query(PanelUser).filter(PanelUser.email == email).first()
         if user is None:
