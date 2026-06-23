@@ -104,7 +104,10 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <div className={styles.footerLinks}>
+        <div className={styles.footerLinksColumn}>
+          <Link to="/forgot-password" className={styles.linkButton}>
+            Olvidé mi contraseña
+          </Link>
           <Link to={registerHref} className={styles.linkButton}>
             ¿No tenés cuenta? Registrarme
           </Link>

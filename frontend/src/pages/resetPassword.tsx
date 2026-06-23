@@ -1,31 +1,23 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { apiRegister, isAuthed } from "../api/client";
+import { apiResetPassword, isAuthed } from "../api/client";
 import styles from "./login.module.css";
 
-export default function RegisterPage() {
+export default function ResetPasswordPage() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [passwordConfirm, setPasswordConfirm] = useState("");
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [verificationUrl, setVerificationUrl] = useState<string | null>(null);
 
-  const registrationToken = useMemo(() => {
+  const token = useMemo(() => {
     const params = new URLSearchParams(location.search);
-    return params.get("registration_token") || "";
+    return params.get("token") || "";
   }, [location.search]);
-
-  const loginHref = useMemo(() => {
-    return registrationToken
-      ? `/login?registration_token=${encodeURIComponent(registrationToken)}`
-      : "/login";
-  }, [registrationToken]);
 
   useEffect(() => {
     if (isAuthed()) {
@@ -37,10 +29,9 @@ export default function RegisterPage() {
     e.preventDefault();
     setError(null);
     setSuccessMessage(null);
-    setVerificationUrl(null);
 
-    if (!registrationToken) {
-      setError("No se encontró un contexto válido para completar el registro.");
+    if (!token) {
+      setError("No se encontró un token válido para restablecer la contraseña.");
       return;
     }
 
@@ -52,21 +43,14 @@ export default function RegisterPage() {
     setLoading(true);
 
     try {
-      const out = await apiRegister({
-        registration_token: registrationToken,
-        email,
+      await apiResetPassword({
+        token,
         password,
         password_confirm: passwordConfirm,
       });
-
-      setSuccessMessage(
-        out.verification_sent
-          ? "Te enviamos un email para verificar tu cuenta."
-          : "Cuenta creada en estado pendiente. Verificá el enlace de abajo."
-      );
-      setVerificationUrl(out.verification_url || null);
+      setSuccessMessage("La contraseña fue actualizada correctamente. Ya podés iniciar sesión.");
     } catch (err: any) {
-      setError(err?.message || "No se pudo crear la cuenta.");
+      setError(err?.message || "No se pudo restablecer la contraseña.");
     } finally {
       setLoading(false);
     }
@@ -77,27 +61,15 @@ export default function RegisterPage() {
       <div className={styles.card}>
         <div className={styles.header}>
           <div className={styles.eyebrow}>Panel de administración</div>
-          <h1 className={styles.title}>Crear cuenta</h1>
+          <h1 className={styles.title}>Nueva contraseña</h1>
           <p className={styles.subtitle}>
-            Registrate para acceder al panel de la app.
+            Definí una nueva contraseña para recuperar el acceso al panel.
           </p>
         </div>
 
         <form onSubmit={onSubmit} className={styles.form}>
           <label className={styles.field}>
-            <span className={styles.label}>Email</span>
-            <input
-              className={styles.input}
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              autoComplete="email"
-              disabled={loading}
-              type="email"
-            />
-          </label>
-
-          <label className={styles.field}>
-            <span className={styles.label}>Contraseña</span>
+            <span className={styles.label}>Nueva contraseña</span>
             <input
               className={styles.input}
               value={password}
@@ -120,10 +92,10 @@ export default function RegisterPage() {
             />
           </label>
 
-          {!registrationToken && (
+          {!token && (
             <div className={styles.errorBox}>
               <div className={styles.errorText}>
-                No se detectó un enlace válido para completar el alta. Volvé a instalar la app o usá el enlace de registro generado por el backend.
+                Falta el token de recuperación en la URL.
               </div>
             </div>
           )}
@@ -140,38 +112,22 @@ export default function RegisterPage() {
             </div>
           )}
 
-          {verificationUrl && (
-            <div className={styles.successBox}>
-              <div className={styles.successText}>
-                <a
-                  href={verificationUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className={styles.inlineLink}
-                >
-                  Verificar cuenta
-                </a>
-              </div>
-            </div>
-          )}
-
           <button
             type="submit"
             disabled={
               loading ||
-              !registrationToken ||
-              !email.trim() ||
+              !token ||
               !password.trim() ||
               !passwordConfirm.trim()
             }
             className={styles.submitButton}
           >
-            {loading ? "Creando cuenta..." : "Registrarme"}
+            {loading ? "Guardando..." : "Guardar nueva contraseña"}
           </button>
         </form>
 
         <div className={styles.footerLinks}>
-          <Link to={loginHref} className={styles.linkButton}>
+          <Link to="/login" className={styles.linkButton}>
             Volver a iniciar sesión
           </Link>
         </div>

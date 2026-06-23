@@ -74,6 +74,29 @@ export type RegisterOut = {
   verification_url: string | null;
 };
 
+export type ForgotPasswordIn = {
+  email: string;
+};
+
+export type ForgotPasswordOut = {
+  ok: boolean;
+  message: string;
+  reset_sent: boolean;
+  reset_url: string | null;
+};
+
+export type ResetPasswordIn = {
+  token: string;
+  password: string;
+  password_confirm: string;
+};
+
+export type ResetPasswordOut = {
+  ok: boolean;
+  email: string;
+  store_id: string;
+};
+
 type SessionUser = {
   email: string;
   store_id: string;
@@ -214,12 +237,43 @@ function storeToken(
 }
 
 function fixErrorMessage(data: any): string {
+  const code = data?.error?.code || data?.detail?.code;
+  if (code === "INVALID_CREDENTIALS") return "Email o contraseña inválidos.";
+  if (code === "STORE_NOT_INSTALLED") {
+    return "La tienda no está instalada o el enlace de registro no es válido.";
+  }
+  if (code === "EMAIL_ALREADY_REGISTERED") return "Ese email ya está registrado.";
+  if (code === "STORE_USER_ALREADY_EXISTS") {
+    return "Esta tienda ya tiene una cuenta creada.";
+  }
+  if (code === "INVALID_RESET_TOKEN") {
+    return "El enlace de recuperación no es válido.";
+  }
+  if (code === "RESET_TOKEN_ALREADY_USED") {
+    return "Este enlace de recuperación ya fue utilizado.";
+  }
+  if (code === "RESET_TOKEN_EXPIRED") {
+    return "El enlace de recuperación expiró. Solicitá uno nuevo.";
+  }
+
   if (data?.error?.message) return String(data.error.message);
   if (data?.detail?.message) return String(data.detail.message);
   if (data?.detail?.code) return String(data.detail.code);
   if (data?.error?.code) return String(data.error.code);
   if (typeof data === "string") return data;
   return "Error";
+}
+
+function isPublicAuthPath(path: string): boolean {
+  const publicPaths = [
+    "/admin/auth/login",
+    "/admin/auth/register",
+    "/admin/auth/forgot-password",
+    "/admin/auth/reset-password",
+    "/admin/auth/verify-email",
+  ];
+
+  return publicPaths.some((publicPath) => path.startsWith(publicPath));
 }
 
 async function http<T>(path: string, opts: RequestInit = {}): Promise<T> {
@@ -242,8 +296,17 @@ async function http<T>(path: string, opts: RequestInit = {}): Promise<T> {
   const data = isJson ? await res.json() : await res.text();
 
   if (res.status === 401) {
+    if (isPublicAuthPath(path)) {
+      throw new Error(fixErrorMessage(data));
+    }
+
     clearAuth();
-    if (window.location.pathname !== "/login") {
+    if (
+      window.location.pathname !== "/login" &&
+      window.location.pathname !== "/register" &&
+      window.location.pathname !== "/forgot-password" &&
+      window.location.pathname !== "/reset-password"
+    ) {
       window.location.href = "/login";
     }
     throw new Error("Sesión expirada.");
@@ -271,8 +334,21 @@ async function httpBlob(path: string, opts: RequestInit = {}): Promise<Blob> {
   });
 
   if (res.status === 401) {
+    if (isPublicAuthPath(path)) {
+      const isJson = (res.headers.get("content-type") || "").includes(
+        "application/json",
+      );
+      const data = isJson ? await res.json() : await res.text();
+      throw new Error(fixErrorMessage(data));
+    }
+
     clearAuth();
-    if (window.location.pathname !== "/login") {
+    if (
+      window.location.pathname !== "/login" &&
+      window.location.pathname !== "/register" &&
+      window.location.pathname !== "/forgot-password" &&
+      window.location.pathname !== "/reset-password"
+    ) {
       window.location.href = "/login";
     }
     throw new Error("Sesión expirada.");
@@ -312,6 +388,26 @@ export async function apiLogin(
 
 export async function apiRegister(payload: RegisterIn): Promise<RegisterOut> {
   return http<RegisterOut>("/admin/auth/register", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function apiForgotPassword(
+  payload: ForgotPasswordIn,
+): Promise<ForgotPasswordOut> {
+  return http<ForgotPasswordOut>("/admin/auth/forgot-password", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function apiResetPassword(
+  payload: ResetPasswordIn,
+): Promise<ResetPasswordOut> {
+  return http<ResetPasswordOut>("/admin/auth/reset-password", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
