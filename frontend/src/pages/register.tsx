@@ -59,12 +59,13 @@ export default function RegisterPage() {
         password_confirm: passwordConfirm,
       });
 
-      setSuccessMessage(
-        out.verification_sent
-          ? "Te enviamos un email para verificar tu cuenta."
-          : "Cuenta creada en estado pendiente. Verificá el enlace de abajo."
-      );
-      setVerificationUrl(out.verification_url || null);
+      if (out.email_sent) {
+        setSuccessMessage("Te enviamos un mail para verificar tu cuenta.");
+      } else {
+        setSuccessMessage(out.message);
+      }
+
+      setVerificationUrl(out.verification_url ?? null);
     } catch (err: any) {
       setError(err?.message || "No se pudo crear la cuenta.");
     } finally {

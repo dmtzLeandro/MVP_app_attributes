@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import secrets
 from datetime import datetime, timedelta
 
@@ -23,10 +24,13 @@ from app.db.models.panel_user_password_reset import PanelUserPasswordReset
 from app.db.models.panel_user_registration import PanelUserRegistration
 from app.db.models.store import Store
 from app.services.email import (
+    EmailDeliveryError,
     send_password_reset_email,
     send_registration_verification_email,
     smtp_is_configured,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/admin/auth", tags=["admin-auth"])
 
@@ -89,7 +93,9 @@ class RegisterOut(BaseModel):
     pending: bool
     email: str
     store_id: str
+    email_sent: bool
     verification_sent: bool
+    message: str
     verification_url: str | None = None
 
 
@@ -246,28 +252,50 @@ def register(
     db.add(reg)
     db.commit()
 
-    verification_url = f"{settings.APP_URL}/admin/auth/verify-email?token={raw_token}"
+    app_env = settings.APP_ENV.strip().lower()
+    is_production = app_env == "production"
 
-    verification_sent = False
+    backend_base_url = settings.APP_URL.rstrip("/")
+    verification_url = (
+        f"{backend_base_url}/admin/auth/verify-email?token={raw_token}"
+    )
+
+    email_sent = False
     if smtp_is_configured():
-        send_registration_verification_email(
-            to_email=payload.email,
-            verification_url=verification_url,
+        try:
+            send_registration_verification_email(
+                to_email=payload.email,
+                verification_url=verification_url,
+            )
+            email_sent = True
+        except EmailDeliveryError as exc:
+            logger.error(
+                "registration_verification_email_failed",
+                extra={
+                    "app_env": app_env,
+                    "delivery_error": exc.reason,
+                },
+            )
+    else:
+        logger.log(
+            logging.ERROR if is_production else logging.WARNING,
+            "registration_verification_email_not_configured",
+            extra={"app_env": app_env},
         )
-        verification_sent = True
 
     response_url: str | None = None
-    if not verification_sent and settings.APP_ENV.lower() != "production":
+    if email_sent:
+        message = "Te enviamos un email para verificar tu cuenta."
+    elif not is_production:
         response_url = verification_url
-
-    if not verification_sent and settings.APP_ENV.lower() == "production":
-        raise HTTPException(
-            status_code=500,
-            detail={
-                "code": "EMAIL_NOT_CONFIGURED",
-                "message": "Email delivery is not configured",
-                "details": None,
-            },
+        message = (
+            "La cuenta quedó pendiente. "
+            "Usá el enlace de verificación disponible para este entorno."
+        )
+    else:
+        message = (
+            "La cuenta quedó pendiente de verificación. "
+            "Si no recibís el email, contactá a soporte."
         )
 
     return RegisterOut(
@@ -275,7 +303,9 @@ def register(
         pending=True,
         email=payload.email,
         store_id=resolved_store_id,
-        verification_sent=verification_sent,
+        email_sent=email_sent,
+        verification_sent=email_sent,
+        message=message,
         verification_url=response_url,
     )
 

@@ -6,37 +6,63 @@ from email.message import EmailMessage
 from app.core.config import settings
 
 
+class EmailDeliveryError(RuntimeError):
+    def __init__(self, reason: str) -> None:
+        super().__init__("Email delivery failed")
+        self.reason = reason
+
+
 def smtp_is_configured() -> bool:
-    return bool(settings.SMTP_HOST and settings.SMTP_FROM_EMAIL)
+    host = (settings.SMTP_HOST or "").strip()
+    from_email = (settings.SMTP_FROM_EMAIL or "").strip()
+    return bool(host and from_email)
 
 
 def send_email(*, to_email: str, subject: str, html: str, text: str) -> None:
-    if not smtp_is_configured():
-        raise RuntimeError("SMTP is not configured")
+    host = (settings.SMTP_HOST or "").strip()
+    from_email = (settings.SMTP_FROM_EMAIL or "").strip()
+    from_name = (settings.SMTP_FROM_NAME or "").strip()
+    username = (settings.SMTP_USERNAME or "").strip()
+    password = settings.SMTP_PASSWORD or ""
 
-    msg = EmailMessage()
-    msg["Subject"] = subject
-    msg["From"] = (
-        f"{settings.SMTP_FROM_NAME} <{settings.SMTP_FROM_EMAIL}>"
-        if settings.SMTP_FROM_NAME
-        else settings.SMTP_FROM_EMAIL
-    )
-    msg["To"] = to_email
-    msg.set_content(text)
-    msg.add_alternative(html, subtype="html")
+    if not host or not from_email:
+        raise EmailDeliveryError("smtp_not_configured")
 
-    if settings.SMTP_USE_TLS:
-        with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT) as server:
-            server.starttls()
-            if settings.SMTP_USERNAME and settings.SMTP_PASSWORD:
-                server.login(settings.SMTP_USERNAME, settings.SMTP_PASSWORD)
+    if bool(username) != bool(password):
+        raise EmailDeliveryError("smtp_credentials_incomplete")
+
+    try:
+        msg = EmailMessage()
+        msg["Subject"] = subject
+        msg["From"] = f"{from_name} <{from_email}>" if from_name else from_email
+        msg["To"] = to_email
+        msg.set_content(text)
+        msg.add_alternative(html, subtype="html")
+
+        timeout = int(settings.SMTP_TIMEOUT_SECONDS)
+
+        if settings.SMTP_USE_TLS:
+            with smtplib.SMTP(
+                host,
+                settings.SMTP_PORT,
+                timeout=timeout,
+            ) as server:
+                server.starttls()
+                if username and password:
+                    server.login(username, password)
+                server.send_message(msg)
+            return
+
+        with smtplib.SMTP_SSL(
+            host,
+            settings.SMTP_PORT,
+            timeout=timeout,
+        ) as server:
+            if username and password:
+                server.login(username, password)
             server.send_message(msg)
-        return
-
-    with smtplib.SMTP_SSL(settings.SMTP_HOST, settings.SMTP_PORT) as server:
-        if settings.SMTP_USERNAME and settings.SMTP_PASSWORD:
-            server.login(settings.SMTP_USERNAME, settings.SMTP_PASSWORD)
-        server.send_message(msg)
+    except (OSError, smtplib.SMTPException, ValueError) as exc:
+        raise EmailDeliveryError(type(exc).__name__) from exc
 
 
 def send_registration_verification_email(

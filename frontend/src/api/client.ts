@@ -70,7 +70,9 @@ export type RegisterOut = {
   pending: boolean;
   email: string;
   store_id: string;
+  email_sent: boolean;
   verification_sent: boolean;
+  message: string;
   verification_url: string | null;
 };
 
