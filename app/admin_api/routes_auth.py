@@ -19,9 +19,11 @@ from app.core.security import (
 )
 from app.db.deps import get_db
 from app.db.models.panel_user import PanelUser
+from app.db.models.panel_user_password_reset import PanelUserPasswordReset
 from app.db.models.panel_user_registration import PanelUserRegistration
 from app.db.models.store import Store
 from app.services.email import (
+    send_password_reset_email,
     send_registration_verification_email,
     smtp_is_configured,
 )
@@ -29,8 +31,28 @@ from app.services.email import (
 router = APIRouter(prefix="/admin/auth", tags=["admin-auth"])
 
 
-def _hash_verification_token(token: str) -> str:
+def _hash_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _utcnow() -> datetime:
+    return datetime.utcnow()
+
+
+def _invalidate_open_password_resets(db: Session, panel_user_id: int) -> None:
+    now = _utcnow()
+    open_resets = (
+        db.query(PanelUserPasswordReset)
+        .filter(
+            PanelUserPasswordReset.panel_user_id == panel_user_id,
+            PanelUserPasswordReset.is_used.is_(False),
+        )
+        .all()
+    )
+
+    for item in open_resets:
+        item.is_used = True
+        item.used_at = now
 
 
 class LoginIn(BaseModel):
@@ -69,6 +91,35 @@ class RegisterOut(BaseModel):
     store_id: str
     verification_sent: bool
     verification_url: str | None = None
+
+
+class ForgotPasswordIn(BaseModel):
+    email: EmailStr
+
+
+class ForgotPasswordOut(BaseModel):
+    ok: bool
+    message: str
+    reset_sent: bool = False
+    reset_url: str | None = None
+
+
+class ResetPasswordIn(BaseModel):
+    token: str = Field(min_length=1)
+    password: str = Field(min_length=8, max_length=128)
+    password_confirm: str = Field(min_length=8, max_length=128)
+
+    @model_validator(mode="after")
+    def _validate_payload(self) -> "ResetPasswordIn":
+        if self.password != self.password_confirm:
+            raise ValueError("Las contraseñas no coinciden")
+        return self
+
+
+class ResetPasswordOut(BaseModel):
+    ok: bool
+    email: str
+    store_id: str
 
 
 @router.post("/login", response_model=LoginOut)
@@ -180,8 +231,8 @@ def register(
     )
 
     raw_token = secrets.token_urlsafe(32)
-    token_hash = _hash_verification_token(raw_token)
-    expires_at = datetime.utcnow() + timedelta(hours=24)
+    token_hash = _hash_token(raw_token)
+    expires_at = _utcnow() + timedelta(hours=24)
 
     reg = PanelUserRegistration(
         store_id=resolved_store_id,
@@ -234,7 +285,7 @@ def verify_email(
     token: str,
     db: Session = Depends(get_db),
 ):
-    token_hash = _hash_verification_token(token)
+    token_hash = _hash_token(token)
 
     reg = (
         db.query(PanelUserRegistration)
@@ -264,7 +315,7 @@ def verify_email(
             """.strip(),
         )
 
-    if datetime.utcnow() > reg.verification_expires_at:
+    if _utcnow() > reg.verification_expires_at:
         return HTMLResponse(
             status_code=400,
             content="""
@@ -325,8 +376,8 @@ def verify_email(
 
     reg.is_verified = True
     reg.is_used = True
-    reg.verified_at = datetime.utcnow()
-    reg.used_at = datetime.utcnow()
+    reg.verified_at = _utcnow()
+    reg.used_at = _utcnow()
 
     db.commit()
 
@@ -341,4 +392,143 @@ def verify_email(
           </body>
         </html>
         """.strip(),
+    )
+
+
+@router.post("/forgot-password", response_model=ForgotPasswordOut)
+def forgot_password(
+    request: Request,
+    payload: ForgotPasswordIn,
+    db: Session = Depends(get_db),
+) -> ForgotPasswordOut:
+    rate_limit(request, name="panel_forgot_password", limit=5, window_seconds=60)
+
+    generic_message = "If the email exists, a reset link has been sent."
+
+    user = db.query(PanelUser).filter(PanelUser.email == payload.email).first()
+    if user is None or not user.is_active:
+        return ForgotPasswordOut(
+            ok=True,
+            message=generic_message,
+            reset_sent=False,
+            reset_url=None,
+        )
+
+    _invalidate_open_password_resets(db, user.id)
+
+    raw_token = secrets.token_urlsafe(32)
+    token_hash = _hash_token(raw_token)
+    expires_at = _utcnow() + timedelta(seconds=int(settings.PASSWORD_RESET_TTL_SECONDS))
+
+    row = PanelUserPasswordReset(
+        panel_user_id=user.id,
+        email=user.email,
+        store_id=user.store_id,
+        reset_token_hash=token_hash,
+        reset_expires_at=expires_at,
+        is_used=False,
+    )
+    db.add(row)
+    db.commit()
+
+    frontend_base = settings.FRONTEND_APP_URL or settings.APP_URL
+    reset_url = f"{frontend_base}/reset-password?token={raw_token}"
+
+    reset_sent = False
+    response_reset_url: str | None = None
+
+    if smtp_is_configured():
+        send_password_reset_email(to_email=user.email, reset_url=reset_url)
+        reset_sent = True
+    elif settings.APP_ENV.lower() != "production":
+        response_reset_url = reset_url
+
+    return ForgotPasswordOut(
+        ok=True,
+        message=generic_message,
+        reset_sent=reset_sent,
+        reset_url=response_reset_url,
+    )
+
+
+@router.post("/reset-password", response_model=ResetPasswordOut)
+def reset_password(
+    request: Request,
+    payload: ResetPasswordIn,
+    db: Session = Depends(get_db),
+) -> ResetPasswordOut:
+    rate_limit(request, name="panel_reset_password", limit=5, window_seconds=60)
+
+    token_hash = _hash_token(payload.token)
+
+    row = (
+        db.query(PanelUserPasswordReset)
+        .filter(PanelUserPasswordReset.reset_token_hash == token_hash)
+        .first()
+    )
+    if row is None:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "INVALID_RESET_TOKEN",
+                "message": "Invalid reset token",
+                "details": None,
+            },
+        )
+
+    if row.is_used:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "RESET_TOKEN_ALREADY_USED",
+                "message": "Reset token already used",
+                "details": None,
+            },
+        )
+
+    if _utcnow() > row.reset_expires_at:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "RESET_TOKEN_EXPIRED",
+                "message": "Reset token expired",
+                "details": None,
+            },
+        )
+
+    user = db.get(PanelUser, row.panel_user_id)
+    if user is None or not user.is_active:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "PANEL_USER_NOT_AVAILABLE",
+                "message": "Panel user is not available",
+                "details": None,
+            },
+        )
+
+    user.password_hash = hash_password(payload.password)
+
+    row.is_used = True
+    row.used_at = _utcnow()
+
+    other_rows = (
+        db.query(PanelUserPasswordReset)
+        .filter(
+            PanelUserPasswordReset.panel_user_id == user.id,
+            PanelUserPasswordReset.id != row.id,
+            PanelUserPasswordReset.is_used.is_(False),
+        )
+        .all()
+    )
+    for item in other_rows:
+        item.is_used = True
+        item.used_at = _utcnow()
+
+    db.commit()
+
+    return ResetPasswordOut(
+        ok=True,
+        email=user.email,
+        store_id=user.store_id,
     )

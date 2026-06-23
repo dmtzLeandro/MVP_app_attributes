@@ -91,12 +91,14 @@ async def seed_products(db: Session, store_id: str, access_token: str) -> int:
                     tn_updated_at=tn_updated_at,
                     image_src=None,
                     image_src_hash=None,
+                    is_active=True,
                 )
                 db.add(obj)
             else:
                 obj.handle = handle
                 obj.title = title
                 obj.tn_updated_at = tn_updated_at
+                obj.is_active = True
 
             src: str | None = None
             images = p.get("images")

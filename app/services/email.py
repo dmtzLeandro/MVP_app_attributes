@@ -53,9 +53,10 @@ def send_registration_verification_email(
       <body style="font-family: Arial, sans-serif; color: #16324f;">
         <h2>Verificá tu cuenta</h2>
         <p>Recibimos una solicitud para crear tu cuenta en <strong>TN Attributes App</strong>.</p>
+        <p>Antes de ingresar al panel, necesitás validar tu cuenta desde este enlace:</p>
         <p>
           <a href="{verification_url}" style="display:inline-block;padding:12px 18px;background:#16324f;color:#ffffff;text-decoration:none;border-radius:8px;">
-            Verificar email
+            Validar cuenta
           </a>
         </p>
         <p>Si el botón no funciona, copiá este enlace:</p>
@@ -65,9 +66,31 @@ def send_registration_verification_email(
     </html>
     """.strip()
 
-    send_email(
-        to_email=to_email,
-        subject=subject,
-        html=html,
-        text=text,
+    send_email(to_email=to_email, subject=subject, html=html, text=text)
+
+
+def send_password_reset_email(*, to_email: str, reset_url: str) -> None:
+    subject = "Restablecé tu contraseña"
+    text = (
+        "Recibimos una solicitud para restablecer tu contraseña en TN Attributes App.\n\n"
+        f"Usá este enlace para definir una nueva contraseña:\n{reset_url}\n\n"
+        "Si no fuiste vos, ignorá este mensaje."
     )
+    html = f"""
+    <html>
+      <body style="font-family: Arial, sans-serif; color: #16324f;">
+        <h2>Restablecé tu contraseña</h2>
+        <p>Recibimos una solicitud para restablecer tu contraseña en <strong>TN Attributes App</strong>.</p>
+        <p>
+          <a href="{reset_url}" style="display:inline-block;padding:12px 18px;background:#16324f;color:#ffffff;text-decoration:none;border-radius:8px;">
+            Restablecer contraseña
+          </a>
+        </p>
+        <p>Si el botón no funciona, copiá este enlace:</p>
+        <p>{reset_url}</p>
+        <p>Si no fuiste vos, ignorá este mensaje.</p>
+      </body>
+    </html>
+    """.strip()
+
+    send_email(to_email=to_email, subject=subject, html=html, text=text)

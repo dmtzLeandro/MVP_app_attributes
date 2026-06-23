@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import DateTime, ForeignKey, String, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -21,11 +21,12 @@ class Product(Base):
         DateTime(timezone=True), nullable=True
     )
 
-    # URL pública 1024 (src) de /products/{id}/images
     image_src: Mapped[str | None] = mapped_column(String, nullable=True)
-
-    # NEW: hash del image_src para detectar cambios sin “basura” en disco
     image_src_hash: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=text("true")
+    )
 
     created_at: Mapped[DateTime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

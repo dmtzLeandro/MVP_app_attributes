@@ -12,6 +12,18 @@ class ProductOut(BaseModel):
     thumbnail_url: Optional[str] = None
 
 
+class ProductsSyncOut(BaseModel):
+    ok: bool
+    store_id: str
+    inserted: int
+    updated: int
+    unchanged: int
+    deactivated: int
+    reactivated: int
+    total_remote: int
+    total_local_before: int
+
+
 class ProductAttributesIn(BaseModel):
     ancho_cm: float | None = Field(default=None, ge=0)
     composicion: str | None = None
@@ -64,9 +76,6 @@ class ProductAttributesBatchOut(BaseModel):
     items: list[ProductAttributesBatchItemOut]
 
 
-# -------------------------
-# STOREFRONT PUBLIC READ
-# -------------------------
 class StorefrontAttributesBatchIn(BaseModel):
     store_id: str
     product_ids: list[str]

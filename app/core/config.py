@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     ADMIN_PASSWORD: str
     JWT_SECRET: str
     JWT_EXPIRES_SECONDS: int = 3600
+    PASSWORD_RESET_TTL_SECONDS: int = 3600
 
     TOKEN_ENCRYPTION_KEY: str
     OAUTH_STATE_SECRET: str
