@@ -5,6 +5,7 @@ import logging
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -21,14 +22,14 @@ from app.core.errors import (
 )
 from app.core.logging import configure_logging
 from app.core.middleware import trace_id_middleware
-from app.core.oauth_state import verify_state
+from app.core.oauth_state import create_registration_token, create_state, verify_state
 from app.core.security import require_panel_user
 from app.db.deps import get_db
+from app.db.models.panel_user import PanelUser
 from app.db.models.store import Store
 from app.services.import_products import seed_products
 from app.services.stores_tokens import migrate_encrypt_tokens, set_store_access_token
 from app.tiendanube_connector.oauth import build_authorize_url, exchange_code_for_token
-from app.core.oauth_state import create_state
 
 configure_logging()
 logger = logging.getLogger("app.main")
@@ -43,14 +44,17 @@ app = FastAPI(
     openapi_url=None if is_production else "/openapi.json",
 )
 
-origins = [
-    "http://localhost:5174",
-    "http://127.0.0.1:5174",
-    "https://tn-app-frontend-demo.onrender.com",
-    "https://yakarplastiendademo.mitiendanube.com",
-    "https://yakarplas.com",
-    "https://www.yakarplas.com",
-]
+def _build_cors_origins(frontend_app_url: str | None) -> list[str]:
+    candidates = ["http://localhost:5173", frontend_app_url]
+    normalized = [
+        value.strip().rstrip("/")
+        for value in candidates
+        if value and value.strip().rstrip("/")
+    ]
+    return list(dict.fromkeys(normalized))
+
+
+origins = _build_cors_origins(settings.FRONTEND_APP_URL)
 
 app.add_middleware(
     CORSMiddleware,
@@ -157,16 +161,26 @@ async def auth_callback(
     imported = await seed_products(
         db=db, store_id=store_id, access_token=access_token_plain
     )
-    return {"ok": True, "store_id": store_id, "products_seeded": imported}
+
+    frontend_base_url = (settings.FRONTEND_APP_URL or settings.APP_URL).rstrip("/")
+    panel_user = db.query(PanelUser).filter(PanelUser.store_id == store_id).first()
+
+    if panel_user is not None:
+        redirect_url = f"{frontend_base_url}/login"
+    else:
+        registration_token = create_registration_token(
+            store_id=store_id,
+            ttl_seconds=3600,
+        )
+        redirect_url = (
+            f"{frontend_base_url}/register"
+            f"?registration_token={registration_token}"
+        )
+
+    return RedirectResponse(url=redirect_url, status_code=303)
 
 
-# Auth sin protección
 app.include_router(admin_auth_router)
-
-# Products router mantiene thumbnails públicos firmados.
-# La protección fina se maneja dentro de sus endpoints.
 app.include_router(admin_products_router)
-
-# CSV y jobs protegidos por usuario de panel autenticado
 app.include_router(admin_csv_router, dependencies=[Depends(require_panel_user)])
 app.include_router(admin_jobs_router, dependencies=[Depends(require_panel_user)])

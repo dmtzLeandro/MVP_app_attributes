@@ -1,17 +1,16 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { apiLogin, isAuthed } from "../api/client";
+import { apiForgotPassword, isAuthed } from "../api/client";
 import styles from "./login.module.css";
 
-export default function LoginPage() {
+export default function ForgotPasswordPage() {
   const navigate = useNavigate();
 
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [remember, setRemember] = useState(true);
-
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [resetUrl, setResetUrl] = useState<string | null>(null);
 
   useEffect(() => {
     if (isAuthed()) {
@@ -22,13 +21,16 @@ export default function LoginPage() {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    setSuccessMessage(null);
+    setResetUrl(null);
     setLoading(true);
 
     try {
-      await apiLogin({ email, password }, remember);
-      navigate("/productos", { replace: true });
+      const out = await apiForgotPassword({ email });
+      setSuccessMessage(out.message);
+      setResetUrl(out.reset_url || null);
     } catch (err: any) {
-      setError(err?.message || "No se pudo iniciar sesión.");
+      setError(err?.message || "No se pudo iniciar el recupero.");
     } finally {
       setLoading(false);
     }
@@ -39,9 +41,9 @@ export default function LoginPage() {
       <div className={styles.card}>
         <div className={styles.header}>
           <div className={styles.eyebrow}>Panel de administración</div>
-          <h1 className={styles.title}>Ingreso</h1>
+          <h1 className={styles.title}>Recuperar acceso</h1>
           <p className={styles.subtitle}>
-            Iniciá sesión para administrar atributos del catálogo.
+            Ingresá tu email y te enviaremos un enlace para restablecer tu contraseña.
           </p>
         </div>
 
@@ -58,49 +60,45 @@ export default function LoginPage() {
             />
           </label>
 
-          <label className={styles.field}>
-            <span className={styles.label}>Contraseña</span>
-            <input
-              className={styles.input}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              type="password"
-              autoComplete="current-password"
-              disabled={loading}
-            />
-          </label>
-
-          <label className={styles.checkboxRow}>
-            <input
-              type="checkbox"
-              checked={remember}
-              onChange={(e) => setRemember(e.target.checked)}
-              disabled={loading}
-            />
-            <span>Recordarme</span>
-          </label>
-
           {error && (
             <div className={styles.errorBox}>
               <div className={styles.errorText}>{error}</div>
             </div>
           )}
 
+          {successMessage && (
+            <div className={styles.successBox}>
+              <div className={styles.successText}>{successMessage}</div>
+            </div>
+          )}
+
+          {resetUrl && (
+            <div className={styles.successBox}>
+              <div className={styles.successText}>
+                <a
+                  href={resetUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className={styles.inlineLink}
+                >
+                  Abrir enlace de recuperación
+                </a>
+              </div>
+            </div>
+          )}
+
           <button
             type="submit"
-            disabled={loading || !email.trim() || !password.trim()}
+            disabled={loading || !email.trim()}
             className={styles.submitButton}
           >
-            {loading ? "Ingresando..." : "Ingresar"}
+            {loading ? "Enviando..." : "Enviar enlace"}
           </button>
         </form>
 
-        <div className={styles.footerLinksColumn}>
-          <Link to="/forgot-password" className={styles.linkButton}>
-            Olvidé mi contraseña
-          </Link>
-          <Link to="/install" className={styles.linkButton}>
-            Instalar aplicación
+        <div className={styles.footerLinks}>
+          <Link to="/login" className={styles.linkButton}>
+            Volver a iniciar sesión
           </Link>
         </div>
       </div>

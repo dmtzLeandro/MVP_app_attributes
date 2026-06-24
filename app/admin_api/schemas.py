@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
 from typing import Literal, Optional
+
+from pydantic import BaseModel, Field
 
 
 class ProductOut(BaseModel):
@@ -9,6 +10,18 @@ class ProductOut(BaseModel):
     handle: str
     title: str
     thumbnail_url: Optional[str] = None
+
+
+class ProductsSyncOut(BaseModel):
+    ok: bool
+    store_id: str
+    inserted: int
+    updated: int
+    unchanged: int
+    deactivated: int
+    reactivated: int
+    total_remote: int
+    total_local_before: int
 
 
 class ProductAttributesIn(BaseModel):
@@ -25,7 +38,6 @@ class ProductAttributesOut(BaseModel):
 
 class ProductAttributesBatchGetIn(BaseModel):
     mode: Literal["get"] = "get"
-    store_id: str
     product_ids: list[str]
 
 
@@ -37,7 +49,6 @@ class ProductAttributesBatchUpsertItemIn(BaseModel):
 
 class ProductAttributesBatchUpsertIn(BaseModel):
     mode: Literal["upsert"] = "upsert"
-    store_id: str
     items: list[ProductAttributesBatchUpsertItemIn]
 
 
@@ -65,9 +76,6 @@ class ProductAttributesBatchOut(BaseModel):
     items: list[ProductAttributesBatchItemOut]
 
 
-# -------------------------
-# STOREFRONT PUBLIC READ
-# -------------------------
 class StorefrontAttributesBatchIn(BaseModel):
     store_id: str
     product_ids: list[str]

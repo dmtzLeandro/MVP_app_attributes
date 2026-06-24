@@ -5,6 +5,18 @@ export type Product = {
   thumbnail_url?: string | null;
 };
 
+export type ProductsSyncOut = {
+  ok: boolean;
+  store_id: string;
+  inserted: number;
+  updated: number;
+  unchanged: number;
+  deactivated: number;
+  reactivated: number;
+  total_remote: number;
+  total_local_before: number;
+};
+
 export type ProductAttributes = {
   product_id: string;
   ancho_cm: number | null;
@@ -56,6 +68,51 @@ type LoginOut = {
   expires_in: number;
   store_id: string;
   email: string;
+};
+
+export type RegisterIn = {
+  registration_token: string;
+  email: string;
+  password: string;
+  password_confirm: string;
+};
+
+export type RegisterOut = {
+  ok: boolean;
+  pending: boolean;
+  email: string;
+  store_id: string;
+  email_sent: boolean;
+  verification_sent: boolean;
+  message: string;
+  verification_url: string | null;
+};
+
+export type ForgotPasswordIn = {
+  email: string;
+};
+
+export type ForgotPasswordOut = {
+  ok: boolean;
+  message: string;
+  reset_sent: boolean;
+  reset_url: string | null;
+};
+
+export type ResetPasswordIn = {
+  token: string;
+  password: string;
+  password_confirm: string;
+};
+
+export type ResetPasswordOut = {
+  ok: boolean;
+  email: string;
+  store_id: string;
+};
+
+export type InstallOut = {
+  authorize_url: string;
 };
 
 type SessionUser = {
@@ -198,12 +255,44 @@ function storeToken(
 }
 
 function fixErrorMessage(data: any): string {
+  const code = data?.error?.code || data?.detail?.code;
+  if (code === "INVALID_CREDENTIALS") return "Email o contraseña inválidos.";
+  if (code === "STORE_NOT_INSTALLED") {
+    return "La tienda no está instalada o el enlace de registro no es válido.";
+  }
+  if (code === "EMAIL_ALREADY_REGISTERED") return "Ese email ya está registrado.";
+  if (code === "STORE_USER_ALREADY_EXISTS") {
+    return "Esta tienda ya tiene una cuenta creada.";
+  }
+  if (code === "INVALID_RESET_TOKEN") {
+    return "El enlace de recuperación no es válido.";
+  }
+  if (code === "RESET_TOKEN_ALREADY_USED") {
+    return "Este enlace de recuperación ya fue utilizado.";
+  }
+  if (code === "RESET_TOKEN_EXPIRED") {
+    return "El enlace de recuperación expiró. Solicitá uno nuevo.";
+  }
+
   if (data?.error?.message) return String(data.error.message);
   if (data?.detail?.message) return String(data.detail.message);
   if (data?.detail?.code) return String(data.detail.code);
   if (data?.error?.code) return String(data.error.code);
   if (typeof data === "string") return data;
   return "Error";
+}
+
+function isPublicAuthPath(path: string): boolean {
+  const publicPaths = [
+    "/auth/install",
+    "/admin/auth/login",
+    "/admin/auth/register",
+    "/admin/auth/forgot-password",
+    "/admin/auth/reset-password",
+    "/admin/auth/verify-email",
+  ];
+
+  return publicPaths.some((publicPath) => path.startsWith(publicPath));
 }
 
 async function http<T>(path: string, opts: RequestInit = {}): Promise<T> {
@@ -226,8 +315,17 @@ async function http<T>(path: string, opts: RequestInit = {}): Promise<T> {
   const data = isJson ? await res.json() : await res.text();
 
   if (res.status === 401) {
+    if (isPublicAuthPath(path)) {
+      throw new Error(fixErrorMessage(data));
+    }
+
     clearAuth();
-    if (window.location.pathname !== "/login") {
+    if (
+      window.location.pathname !== "/login" &&
+      window.location.pathname !== "/register" &&
+      window.location.pathname !== "/forgot-password" &&
+      window.location.pathname !== "/reset-password"
+    ) {
       window.location.href = "/login";
     }
     throw new Error("Sesión expirada.");
@@ -255,8 +353,21 @@ async function httpBlob(path: string, opts: RequestInit = {}): Promise<Blob> {
   });
 
   if (res.status === 401) {
+    if (isPublicAuthPath(path)) {
+      const isJson = (res.headers.get("content-type") || "").includes(
+        "application/json",
+      );
+      const data = isJson ? await res.json() : await res.text();
+      throw new Error(fixErrorMessage(data));
+    }
+
     clearAuth();
-    if (window.location.pathname !== "/login") {
+    if (
+      window.location.pathname !== "/login" &&
+      window.location.pathname !== "/register" &&
+      window.location.pathname !== "/forgot-password" &&
+      window.location.pathname !== "/reset-password"
+    ) {
       window.location.href = "/login";
     }
     throw new Error("Sesión expirada.");
@@ -294,6 +405,34 @@ export async function apiLogin(
   return out;
 }
 
+export async function apiRegister(payload: RegisterIn): Promise<RegisterOut> {
+  return http<RegisterOut>("/admin/auth/register", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function apiForgotPassword(
+  payload: ForgotPasswordIn,
+): Promise<ForgotPasswordOut> {
+  return http<ForgotPasswordOut>("/admin/auth/forgot-password", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function apiResetPassword(
+  payload: ResetPasswordIn,
+): Promise<ResetPasswordOut> {
+  return http<ResetPasswordOut>("/admin/auth/reset-password", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
 // ------------------------------------------------------
 // MOJIBAKE
 // ------------------------------------------------------
@@ -308,18 +447,31 @@ export async function listProducts(): Promise<Product[]> {
   return http<Product[]>("/admin/products");
 }
 
+export async function apiSyncProducts(): Promise<ProductsSyncOut> {
+  return http<ProductsSyncOut>("/admin/products/sync", {
+    method: "POST",
+  });
+}
+
+export async function apiGetInstallUrl(): Promise<InstallOut> {
+  return http<InstallOut>("/auth/install", {
+    method: "GET",
+  });
+}
+
 export async function batchGetAttributes(
   productIds: string[],
 ): Promise<BatchGetOut> {
-  const storeId = getStoreId();
-  if (!storeId) throw new Error("No se encontró la tienda de la sesión.");
+  const sessionUser = getSessionUser();
+  if (!sessionUser?.store_id) {
+    throw new Error("No se encontró la tienda de la sesión.");
+  }
 
   return http<BatchGetOut>("/admin/products/attributes/batch", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       mode: "get",
-      store_id: storeId,
       product_ids: productIds,
     }),
   });
@@ -328,8 +480,10 @@ export async function batchGetAttributes(
 export async function batchUpsertAttributes(
   items: BatchUpsertInItem[],
 ): Promise<BatchUpsertOut> {
-  const storeId = getStoreId();
-  if (!storeId) throw new Error("No se encontró la tienda de la sesión.");
+  const sessionUser = getSessionUser();
+  if (!sessionUser?.store_id) {
+    throw new Error("No se encontró la tienda de la sesión.");
+  }
 
   const idem = crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
 
@@ -341,7 +495,6 @@ export async function batchUpsertAttributes(
     },
     body: JSON.stringify({
       mode: "upsert",
-      store_id: storeId,
       items,
     }),
   });
@@ -350,11 +503,13 @@ export async function batchUpsertAttributes(
 export async function getProductAttributes(
   productId: string,
 ): Promise<ProductAttributes> {
-  const storeId = getStoreId();
-  if (!storeId) throw new Error("No se encontró la tienda de la sesión.");
+  const sessionUser = getSessionUser();
+  if (!sessionUser?.store_id) {
+    throw new Error("No se encontró la tienda de la sesión.");
+  }
 
   return http<ProductAttributes>(
-    `/admin/products/${encodeURIComponent(productId)}/attributes?store_id=${encodeURIComponent(storeId)}`,
+    `/admin/products/${encodeURIComponent(productId)}/attributes`,
   );
 }
 
@@ -362,11 +517,13 @@ export async function updateProductAttributes(
   productId: string,
   payload: { ancho_cm: number | null; composicion: string | null },
 ): Promise<{ ok: boolean }> {
-  const storeId = getStoreId();
-  if (!storeId) throw new Error("No se encontró la tienda de la sesión.");
+  const sessionUser = getSessionUser();
+  if (!sessionUser?.store_id) {
+    throw new Error("No se encontró la tienda de la sesión.");
+  }
 
   return http<{ ok: boolean }>(
-    `/admin/products/${encodeURIComponent(productId)}/attributes?store_id=${encodeURIComponent(storeId)}`,
+    `/admin/products/${encodeURIComponent(productId)}/attributes`,
     {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -379,26 +536,27 @@ export async function updateProductAttributes(
 // CSV
 // ------------------------------------------------------
 export async function exportCsvFile(): Promise<Blob> {
-  const storeId = getStoreId();
-  if (!storeId) throw new Error("No se encontró la tienda de la sesión.");
+  const sessionUser = getSessionUser();
+  if (!sessionUser?.store_id) {
+    throw new Error("No se encontró la tienda de la sesión.");
+  }
 
-  return httpBlob(`/admin/export/csv?store_id=${encodeURIComponent(storeId)}`, {
+  return httpBlob("/admin/export/csv", {
     method: "GET",
   });
 }
 
 export async function importCsvFile(file: File): Promise<ImportCsvOut> {
-  const storeId = getStoreId();
-  if (!storeId) throw new Error("No se encontró la tienda de la sesión.");
+  const sessionUser = getSessionUser();
+  if (!sessionUser?.store_id) {
+    throw new Error("No se encontró la tienda de la sesión.");
+  }
 
   const form = new FormData();
   form.append("file", file);
 
-  return http<ImportCsvOut>(
-    `/admin/import/csv?store_id=${encodeURIComponent(storeId)}`,
-    {
-      method: "POST",
-      body: form,
-    },
-  );
+  return http<ImportCsvOut>("/admin/import/csv", {
+    method: "POST",
+    body: form,
+  });
 }

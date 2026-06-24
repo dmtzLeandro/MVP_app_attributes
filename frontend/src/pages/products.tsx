@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
+  apiSyncProducts,
   batchGetAttributes,
   batchUpsertAttributes,
+  clearAuth,
   exportCsvFile,
   fixMojibake,
   getSessionEmail,
@@ -74,6 +77,8 @@ function getFinalValues(
 }
 
 export default function ProductsPage() {
+  const navigate = useNavigate();
+
   const [products, setProducts] = useState<Product[]>([]);
   const [attrs, setAttrs] = useState<Record<string, ProductAttributes>>({});
   const [draft, setDraft] = useState<Record<string, DraftRow>>({});
@@ -87,6 +92,7 @@ export default function ProductsPage() {
   const [saving, setSaving] = useState(false);
   const [exportingCsv, setExportingCsv] = useState(false);
   const [importingCsv, setImportingCsv] = useState(false);
+  const [syncingCatalog, setSyncingCatalog] = useState(false);
 
   const [err, setErr] = useState<string>("");
   const [toast, setToast] = useState<string | null>(null);
@@ -233,6 +239,11 @@ export default function ProductsPage() {
     showToast("Cambios descartados.");
   }
 
+  function handleLogout() {
+    clearAuth();
+    navigate("/login", { replace: true });
+  }
+
   async function saveAll() {
     try {
       setSaving(true);
@@ -294,6 +305,46 @@ export default function ProductsPage() {
       setErr(e?.message ?? String(e));
     } finally {
       setExportingCsv(false);
+    }
+  }
+
+  async function handleSyncCatalog() {
+    if (pendingCount > 0) {
+      setErr(
+        "Guardá o descartá los cambios pendientes antes de sincronizar el catálogo.",
+      );
+      return;
+    }
+
+    try {
+      setSyncingCatalog(true);
+      setErr("");
+
+      const result = await apiSyncProducts();
+
+      setLoading(true);
+      const rows = await listProducts();
+
+      setProducts(rows);
+      setSelected(new Set());
+      setPage(1);
+
+      showToast(
+        `Catálogo sincronizado: ${result.total_remote} producto(s) ` +
+          `• ${result.inserted} nuevo(s) ` +
+          `• ${result.updated} actualizado(s) ` +
+          `• ${result.reactivated} reactivado(s) ` +
+          `• ${result.deactivated} desactivado(s).`,
+      );
+    } catch (e: unknown) {
+      setErr(
+        e instanceof Error
+          ? e.message
+          : "No se pudo sincronizar el catálogo con Tiendanube.",
+      );
+    } finally {
+      setLoading(false);
+      setSyncingCatalog(false);
     }
   }
 
@@ -384,7 +435,21 @@ export default function ProductsPage() {
           <div className={styles.actions}>
             <button
               className={styles.ghostButton}
-              disabled={exportingCsv || importingCsv}
+              disabled={
+                syncingCatalog ||
+                exportingCsv ||
+                importingCsv ||
+                saving ||
+                pendingCount > 0
+              }
+              onClick={handleSyncCatalog}
+            >
+              {syncingCatalog ? "Sincronizando..." : "Sincronizar catálogo"}
+            </button>
+
+            <button
+              className={styles.ghostButton}
+              disabled={exportingCsv || importingCsv || syncingCatalog}
               onClick={handleExportCsv}
             >
               {exportingCsv ? "Exportando..." : "Exportar CSV"}
@@ -392,7 +457,7 @@ export default function ProductsPage() {
 
             <button
               className={styles.ghostButton}
-              disabled={importingCsv || exportingCsv}
+              disabled={importingCsv || exportingCsv || syncingCatalog}
               onClick={openCsvImport}
             >
               Importar CSV
@@ -400,7 +465,7 @@ export default function ProductsPage() {
 
             <button
               className={styles.ghostButton}
-              disabled={selected.size === 0}
+              disabled={selected.size === 0 || syncingCatalog}
               onClick={openBulk}
             >
               Aplicar a selección
@@ -408,7 +473,7 @@ export default function ProductsPage() {
 
             <button
               className={styles.ghostButton}
-              disabled={pendingCount === 0 || saving}
+              disabled={pendingCount === 0 || saving || syncingCatalog}
               onClick={discardAllDraft}
             >
               Descartar
@@ -416,10 +481,18 @@ export default function ProductsPage() {
 
             <button
               className={styles.primaryButton}
-              disabled={pendingCount === 0 || saving}
+              disabled={pendingCount === 0 || saving || syncingCatalog}
               onClick={saveAll}
             >
               {saving ? "Guardando..." : `Guardar (${pendingCount})`}
+            </button>
+
+            <button
+              type="button"
+              className={styles.ghostButton}
+              onClick={handleLogout}
+            >
+              Cerrar sesión
             </button>
           </div>
         </div>
