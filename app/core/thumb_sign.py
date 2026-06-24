@@ -19,24 +19,32 @@ def _secret() -> str:
 
 
 def sign_thumb(
-    *, store_id: str, product_id: str, v: str, size: int, ttl_seconds: int = 3600
+    *, store_id: str, product_id: str, v: str, size: int
 ) -> str:
     """
-    Devuelve "exp.sig" (exp epoch seconds, sig hex sha256).
+    Devuelve una firma estable ligada a la versión vigente de la imagen.
     """
-    exp = int(time.time()) + int(ttl_seconds)
-    msg = f"{store_id}:{product_id}:{v}:{size}:{exp}".encode("utf-8")
+    msg = f"thumb:v1:{store_id}:{product_id}:{v}:{size}".encode("utf-8")
     sig = hmac.new(_secret().encode("utf-8"), msg, hashlib.sha256).hexdigest()
-    return f"{exp}.{sig}"
+    return f"v1.{sig}"
 
 
 def verify_thumb_sig(
     *, store_id: str, product_id: str, v: str, size: int, sig: str
 ) -> bool:
+    if sig.startswith("v1."):
+        hexsig = sig.removeprefix("v1.")
+        msg = f"thumb:v1:{store_id}:{product_id}:{v}:{size}".encode("utf-8")
+        expected = hmac.new(
+            _secret().encode("utf-8"), msg, hashlib.sha256
+        ).hexdigest()
+        return hmac.compare_digest(expected, hexsig)
+
+    # Compatibilidad temporal con firmas legacy "exp.hmac".
     try:
         exp_s, hexsig = sig.split(".", 1)
         exp = int(exp_s)
-    except Exception:
+    except (AttributeError, TypeError, ValueError):
         return False
 
     if int(time.time()) > exp:

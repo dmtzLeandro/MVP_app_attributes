@@ -26,8 +26,16 @@ def thumbs_root() -> Path:
     return Path(root)
 
 
-def thumb_path(store_id: str, product_id: str) -> Path:
-    return thumbs_root() / store_id / f"{product_id}.webp"
+def thumb_path(
+    store_id: str,
+    product_id: str,
+    image_version: str,
+    size: int,
+) -> Path:
+    cache_key = hashlib.sha256(
+        f"{product_id}:{image_version}:{size}".encode("utf-8")
+    ).hexdigest()
+    return thumbs_root() / store_id / f"{cache_key}.webp"
 
 
 class _BytesIO:
@@ -169,6 +177,7 @@ async def ensure_thumbnail(
     *,
     store_id: str,
     product_id: str,
+    image_version: str,
     image_url_1024: str,
     size: int,
 ) -> Path | None:
@@ -179,7 +188,7 @@ async def ensure_thumbnail(
     - Si el servidor está ocupado, devuelve None rápido.
     - Si consigue slot, genera la miniatura y la guarda.
     """
-    p = thumb_path(store_id, product_id)
+    p = thumb_path(store_id, product_id, image_version, size)
     if p.exists():
         return p
 
@@ -192,7 +201,7 @@ async def ensure_thumbnail(
         return None
 
     try:
-        key = f"{store_id}:{product_id}:{size}"
+        key = f"{store_id}:{product_id}:{image_version}:{size}"
         lock = await _get_key_lock(key)
 
         async with lock:

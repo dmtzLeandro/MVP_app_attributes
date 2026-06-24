@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import logging
+from urllib.parse import quote, urlencode
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse, RedirectResponse
 from sqlalchemy.orm import Session
 from app.services.sync_products import sync_products
@@ -50,6 +51,8 @@ from app.services.thumbnails import ensure_thumbnail, thumb_path
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 logger = logging.getLogger("app.admin.products")
+THUMB_IMMUTABLE_CACHE = "public, max-age=31536000, immutable"
+THUMB_FALLBACK_CACHE = "public, max-age=300"
 
 
 def ensure_mvp_attribute_definitions(db: Session) -> None:
@@ -91,34 +94,48 @@ def debug_ping():
 async def product_thumbnail(
     store_id: str,
     product_id: str,
-    size: int = 96,
+    size: int = Query(default=96, ge=32, le=512),
     v: str = "",
     sig: str = "",
     db: Session = Depends(get_db),
 ):
     """
     Endpoint consumido por <img>: no manda Authorization.
-    Seguridad: URL firmada (sig) con TTL.
+    Seguridad: URL firmada y ligada a la versión vigente de la imagen.
     """
     if not verify_thumb_sig(
         store_id=store_id, product_id=product_id, v=v, size=size, sig=sig
     ):
-        return Response(status_code=403)
+        return Response(
+            status_code=403,
+            headers={"Cache-Control": "no-store"},
+        )
 
     prod = db.get(Product, (store_id, product_id))
-    if not prod or not prod.image_src:
-        return Response(status_code=204)
+    current_version = prod.image_src_hash if prod else None
+    if (
+        not prod
+        or not prod.is_active
+        or not prod.image_src
+        or not current_version
+        or v != current_version
+    ):
+        return Response(
+            status_code=404,
+            headers={"Cache-Control": "no-store"},
+        )
 
-    p = thumb_path(store_id, product_id)
+    p = thumb_path(store_id, product_id, current_version, size)
 
     if p.exists():
-        headers = {"Cache-Control": "public, max-age=86400"}
+        headers = {"Cache-Control": THUMB_IMMUTABLE_CACHE}
         return FileResponse(path=str(p), media_type="image/webp", headers=headers)
 
     try:
         generated = await ensure_thumbnail(
             store_id=store_id,
             product_id=product_id,
+            image_version=current_version,
             image_url_1024=prod.image_src,
             size=size,
         )
@@ -135,11 +152,11 @@ async def product_thumbnail(
         return RedirectResponse(
             url=prod.image_src,
             status_code=307,
-            headers={"Cache-Control": "no-store"},
+            headers={"Cache-Control": THUMB_FALLBACK_CACHE},
         )
 
     if generated and generated.exists():
-        headers = {"Cache-Control": "public, max-age=86400"}
+        headers = {"Cache-Control": THUMB_IMMUTABLE_CACHE}
         return FileResponse(
             path=str(generated), media_type="image/webp", headers=headers
         )
@@ -147,7 +164,7 @@ async def product_thumbnail(
     return RedirectResponse(
         url=prod.image_src,
         status_code=307,
-        headers={"Cache-Control": "no-store"},
+        headers={"Cache-Control": THUMB_FALLBACK_CACHE},
     )
 
 
@@ -457,9 +474,19 @@ def list_products(
                 product_id=r.product_id,
                 v=v,
                 size=96,
-                ttl_seconds=3600,
             )
-            thumb_url = f"{base}/admin/products/{r.product_id}/thumbnail?store_id={authorized_store_id}&size=96&v={v}&sig={sig}"
+            query = urlencode(
+                {
+                    "store_id": authorized_store_id,
+                    "size": 96,
+                    "v": v,
+                    "sig": sig,
+                }
+            )
+            product_path = quote(r.product_id, safe="")
+            thumb_url = (
+                f"{base}/admin/products/{product_path}/thumbnail?{query}"
+            )
         else:
             thumb_url = None
 
