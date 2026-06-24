@@ -21,6 +21,7 @@ import type {
 import styles from "./products.module.css";
 
 const PAGE_SIZE = 25;
+const MAX_THUMBNAIL_MEMORY_CACHE = 100;
 
 function scheduleIdleTask(task: () => void): () => void {
   if ("requestIdleCallback" in window) {
@@ -109,8 +110,12 @@ export default function ProductsPage() {
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<number | null>(null);
   const loadingAttributeIdsRef = useRef<Set<string>>(new Set());
-  const prefetchedThumbnailUrlsRef = useRef<Set<string>>(new Set());
-  const activeThumbnailPreloadsRef = useRef<Set<HTMLImageElement>>(new Set());
+  const thumbnailMemoryCacheRef = useRef<Map<string, HTMLImageElement>>(
+    new Map(),
+  );
+  const thumbnailPreloadsInFlightRef = useRef<Set<HTMLImageElement>>(
+    new Set(),
+  );
   const prefetchedNavigationKeyRef = useRef<string | null>(null);
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -166,6 +171,74 @@ export default function ProductsPage() {
         setLoadingAttrs(false);
       }
     }
+  }
+
+  function touchThumbnail(url: string) {
+    const cache = thumbnailMemoryCacheRef.current;
+    const image = cache.get(url);
+    if (!image) return;
+
+    cache.delete(url);
+    cache.set(url, image);
+  }
+
+  function forgetThumbnail(url: string, expectedImage?: HTMLImageElement) {
+    const cache = thumbnailMemoryCacheRef.current;
+    const cachedImage = cache.get(url);
+    if (!cachedImage || (expectedImage && cachedImage !== expectedImage)) return;
+
+    cache.delete(url);
+  }
+
+  function trimThumbnailCache() {
+    const cache = thumbnailMemoryCacheRef.current;
+
+    while (cache.size > MAX_THUMBNAIL_MEMORY_CACHE) {
+      const oldestUrl = cache.keys().next().value as string | undefined;
+      if (!oldestUrl) break;
+
+      const oldestImage = cache.get(oldestUrl);
+      cache.delete(oldestUrl);
+
+      if (
+        oldestImage &&
+        thumbnailPreloadsInFlightRef.current.has(oldestImage)
+      ) {
+        thumbnailPreloadsInFlightRef.current.delete(oldestImage);
+        oldestImage.onload = null;
+        oldestImage.onerror = null;
+      }
+    }
+  }
+
+  function preloadThumbnail(url: string) {
+    if (thumbnailMemoryCacheRef.current.has(url)) {
+      touchThumbnail(url);
+      return;
+    }
+
+    const image = new Image();
+    image.decoding = "async";
+
+    thumbnailPreloadsInFlightRef.current.add(image);
+    thumbnailMemoryCacheRef.current.set(url, image);
+    trimThumbnailCache();
+
+    image.onload = () => {
+      thumbnailPreloadsInFlightRef.current.delete(image);
+      image.onload = null;
+      image.onerror = null;
+      touchThumbnail(url);
+    };
+
+    image.onerror = () => {
+      thumbnailPreloadsInFlightRef.current.delete(image);
+      forgetThumbnail(url, image);
+      image.onload = null;
+      image.onerror = null;
+    };
+
+    image.src = url;
   }
 
   function showToast(msg: string) {
@@ -250,26 +323,7 @@ export default function ProductsPage() {
 
       for (const product of nextPageItems) {
         const url = product.thumbnail_url;
-        if (!url || prefetchedThumbnailUrlsRef.current.has(url)) continue;
-
-        prefetchedThumbnailUrlsRef.current.add(url);
-
-        const image = new Image();
-        activeThumbnailPreloadsRef.current.add(image);
-        image.decoding = "async";
-
-        const releaseImage = () => {
-          activeThumbnailPreloadsRef.current.delete(image);
-          image.onload = null;
-          image.onerror = null;
-        };
-
-        image.onload = releaseImage;
-        image.onerror = () => {
-          prefetchedThumbnailUrlsRef.current.delete(url);
-          releaseImage();
-        };
-        image.src = url;
+        if (url) preloadThumbnail(url);
       }
     });
   }, [nextPageItems, safePage, q, onlyMissing]);
@@ -684,6 +738,8 @@ export default function ProductsPage() {
                           <Thumb
                             url={p.thumbnail_url ?? null}
                             title={fixMojibake(p.title)}
+                            onLoaded={touchThumbnail}
+                            onFailed={forgetThumbnail}
                           />
 
                           <div className={styles.productText}>
@@ -795,7 +851,17 @@ export default function ProductsPage() {
   );
 }
 
-function Thumb({ url, title }: { url?: string | null; title: string }) {
+function Thumb({
+  url,
+  title,
+  onLoaded,
+  onFailed,
+}: {
+  url?: string | null;
+  title: string;
+  onLoaded: (url: string) => void;
+  onFailed: (url: string) => void;
+}) {
   const initials = (title || "P").trim().slice(0, 1).toUpperCase();
   const [failed, setFailed] = useState(false);
 
@@ -815,7 +881,11 @@ function Thumb({ url, title }: { url?: string | null; title: string }) {
     <img
       src={url}
       alt={title}
-      onError={() => setFailed(true)}
+      onLoad={() => onLoaded(url)}
+      onError={() => {
+        onFailed(url);
+        setFailed(true);
+      }}
       className={styles.thumb}
       loading="lazy"
       decoding="async"
