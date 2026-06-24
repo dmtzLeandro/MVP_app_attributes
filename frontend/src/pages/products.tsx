@@ -22,6 +22,16 @@ import styles from "./products.module.css";
 
 const PAGE_SIZE = 25;
 
+function scheduleIdleTask(task: () => void): () => void {
+  if ("requestIdleCallback" in window) {
+    const id = window.requestIdleCallback(task, { timeout: 1000 });
+    return () => window.cancelIdleCallback(id);
+  }
+
+  const id = globalThis.setTimeout(task, 200);
+  return () => globalThis.clearTimeout(id);
+}
+
 type DraftRow = {
   ancho_cm?: number | null;
   composicion?: string | null;
@@ -89,6 +99,7 @@ export default function ProductsPage() {
 
   const [loading, setLoading] = useState(true);
   const [loadingAttrs, setLoadingAttrs] = useState(false);
+  const [attributeRetryVersion, setAttributeRetryVersion] = useState(0);
   const [saving, setSaving] = useState(false);
   const [exportingCsv, setExportingCsv] = useState(false);
   const [importingCsv, setImportingCsv] = useState(false);
@@ -97,6 +108,10 @@ export default function ProductsPage() {
   const [err, setErr] = useState<string>("");
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<number | null>(null);
+  const loadingAttributeIdsRef = useRef<Set<string>>(new Set());
+  const prefetchedThumbnailUrlsRef = useRef<Set<string>>(new Set());
+  const activeThumbnailPreloadsRef = useRef<Set<HTMLImageElement>>(new Set());
+  const prefetchedNavigationKeyRef = useRef<string | null>(null);
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkOpen, setBulkOpen] = useState(false);
@@ -118,23 +133,38 @@ export default function ProductsPage() {
     }
   }
 
-  async function loadAttrsForIds(ids: string[]) {
-    if (ids.length === 0) return;
+  async function loadAttrsForIds(ids: string[], background = false) {
+    const idsToRequest = ids.filter(
+      (id) => !(id in attrs) && !loadingAttributeIdsRef.current.has(id),
+    );
+    if (idsToRequest.length === 0) return;
 
-    setLoadingAttrs(true);
-    setErr("");
+    idsToRequest.forEach((id) => loadingAttributeIdsRef.current.add(id));
+
+    if (!background) {
+      setLoadingAttrs(true);
+      setErr("");
+    }
 
     try {
-      const res = await batchGetAttributes(ids);
+      const res = await batchGetAttributes(idsToRequest);
 
       const map: Record<string, ProductAttributes> = {};
       for (const it of res.items) map[it.product_id] = it;
 
       setAttrs((prev) => ({ ...prev, ...map }));
     } catch (e: any) {
-      setErr(e?.message ?? String(e));
+      if (!background) {
+        setErr(e?.message ?? String(e));
+      } else {
+        setAttributeRetryVersion((version) => version + 1);
+      }
     } finally {
-      setLoadingAttrs(false);
+      idsToRequest.forEach((id) => loadingAttributeIdsRef.current.delete(id));
+
+      if (!background) {
+        setLoadingAttrs(false);
+      }
     }
   }
 
@@ -180,6 +210,11 @@ export default function ProductsPage() {
     return filtered.slice(start, start + PAGE_SIZE);
   }, [filtered, safePage]);
 
+  const nextPageItems = useMemo(() => {
+    const start = safePage * PAGE_SIZE;
+    return filtered.slice(start, start + PAGE_SIZE);
+  }, [filtered, safePage]);
+
   const pageProductIds = useMemo(
     () => pageItems.map((p) => p.product_id),
     [pageItems],
@@ -194,7 +229,50 @@ export default function ProductsPage() {
     const idsToLoad = pageProductIds.filter((pid) => !(pid in attrs));
     if (idsToLoad.length === 0) return;
     loadAttrsForIds(idsToLoad);
-  }, [pageProductIdsKey, attrs]);
+  }, [pageProductIdsKey, attrs, attributeRetryVersion]);
+
+  useEffect(() => {
+    if (nextPageItems.length === 0) return;
+
+    const navigationKey = [
+      safePage,
+      q.trim().toLowerCase(),
+      onlyMissing ? "missing" : "all",
+    ].join(":");
+
+    if (prefetchedNavigationKeyRef.current === navigationKey) return;
+
+    return scheduleIdleTask(() => {
+      prefetchedNavigationKeyRef.current = navigationKey;
+
+      const nextIds = nextPageItems.map((product) => product.product_id);
+      void loadAttrsForIds(nextIds, true);
+
+      for (const product of nextPageItems) {
+        const url = product.thumbnail_url;
+        if (!url || prefetchedThumbnailUrlsRef.current.has(url)) continue;
+
+        prefetchedThumbnailUrlsRef.current.add(url);
+
+        const image = new Image();
+        activeThumbnailPreloadsRef.current.add(image);
+        image.decoding = "async";
+
+        const releaseImage = () => {
+          activeThumbnailPreloadsRef.current.delete(image);
+          image.onload = null;
+          image.onerror = null;
+        };
+
+        image.onload = releaseImage;
+        image.onerror = () => {
+          prefetchedThumbnailUrlsRef.current.delete(url);
+          releaseImage();
+        };
+        image.src = url;
+      }
+    });
+  }, [nextPageItems, safePage, q, onlyMissing]);
 
   const pendingCount = useMemo(() => {
     let count = 0;
@@ -325,6 +403,7 @@ export default function ProductsPage() {
       setLoading(true);
       const rows = await listProducts();
 
+      prefetchedNavigationKeyRef.current = null;
       setProducts(rows);
       setSelected(new Set());
       setPage(1);
