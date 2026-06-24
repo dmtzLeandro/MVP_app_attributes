@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal, Optional
+from typing import Annotated, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -76,9 +76,12 @@ class ProductAttributesBatchOut(BaseModel):
     items: list[ProductAttributesBatchItemOut]
 
 
+StorefrontProductId = Annotated[str, Field(min_length=1, max_length=64)]
+
+
 class StorefrontAttributesBatchIn(BaseModel):
-    store_id: str
-    product_ids: list[str]
+    store_id: str = Field(min_length=1, max_length=32)
+    product_ids: list[StorefrontProductId] = Field(min_length=1, max_length=100)
 
 
 class StorefrontAttributesItemOut(BaseModel):
@@ -88,8 +91,4 @@ class StorefrontAttributesItemOut(BaseModel):
 
 
 class StorefrontAttributesBatchOut(BaseModel):
-    ok: bool
-    store_id: str
-    found: int
-    missing_products: list[str]
     items: list[StorefrontAttributesItemOut]

@@ -5,7 +5,7 @@ import logging
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, Response
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -35,6 +35,8 @@ configure_logging()
 logger = logging.getLogger("app.main")
 
 is_production = settings.APP_ENV.lower() == "production"
+STOREFRONT_PUBLIC_PATH = "/admin/storefront/attributes/batch"
+STOREFRONT_ALLOWED_HEADERS = {"content-type"}
 
 app = FastAPI(
     title="TN Materiales MVP",
@@ -68,6 +70,44 @@ app.add_middleware(
 @app.middleware("http")
 async def _trace_id(request: Request, call_next):
     return await trace_id_middleware(request, call_next)
+
+
+@app.middleware("http")
+async def _storefront_public_cors(request: Request, call_next):
+    if request.url.path != STOREFRONT_PUBLIC_PATH:
+        return await call_next(request)
+
+    if request.method == "OPTIONS":
+        requested_method = request.headers.get(
+            "access-control-request-method", ""
+        ).upper()
+        requested_headers = {
+            value.strip().lower()
+            for value in request.headers.get(
+                "access-control-request-headers", ""
+            ).split(",")
+            if value.strip()
+        }
+        if requested_method != "POST" or not requested_headers.issubset(
+            STOREFRONT_ALLOWED_HEADERS
+        ):
+            return Response(status_code=400)
+
+        return Response(
+            status_code=204,
+            headers={
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "POST, OPTIONS",
+                "Access-Control-Allow-Headers": "content-type",
+                "Access-Control-Max-Age": "600",
+            },
+        )
+
+    response = await call_next(request)
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    if "access-control-allow-credentials" in response.headers:
+        del response.headers["access-control-allow-credentials"]
+    return response
 
 
 @app.exception_handler(RequestValidationError)

@@ -159,22 +159,47 @@ async def product_thumbnail(
     response_model=StorefrontAttributesBatchOut,
 )
 def storefront_batch_attributes(
+    request: Request,
     payload: StorefrontAttributesBatchIn,
     db: Session = Depends(get_db),
 ):
+    if request.headers.get("authorization") or request.headers.get("cookie"):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "INVALID_STOREFRONT_REQUEST",
+                "message": "Unable to process storefront request",
+                "details": None,
+            },
+        )
+
+    rate_limit(request, name="storefront_attributes", limit=60, window_seconds=60)
+
     store_id = payload.store_id
     product_ids = list(dict.fromkeys(payload.product_ids))
 
-    cache_key = build_batch_get_key(store_id=store_id, product_ids=product_ids)
+    store = db.get(Store, store_id)
+    if store is None or store.status != "installed":
+        logger.warning(
+            "storefront_store_unavailable",
+            extra={"store_id": store_id},
+        )
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "STOREFRONT_DATA_UNAVAILABLE",
+                "message": "Storefront data unavailable",
+                "details": None,
+            },
+        )
+
+    cache_key = (
+        build_batch_get_key(store_id=store_id, product_ids=product_ids)
+        + ":storefront"
+    )
     cached = get_cached(cache_key)
     if cached is not None:
-        return {
-            "ok": True,
-            "store_id": store_id,
-            "found": cached.get("found", 0) or 0,
-            "missing_products": cached.get("missing_products", []),
-            "items": cached.get("items", []),
-        }
+        return cached
 
     existing_rows = (
         db.query(Product.product_id)
@@ -187,31 +212,13 @@ def storefront_batch_attributes(
     )
     existing_ids = {r[0] for r in existing_rows}
 
-    missing = [pid for pid in product_ids if pid not in existing_ids]
     found_ids = [pid for pid in product_ids if pid in existing_ids]
 
     out_data = batch_get(db, store_id=store_id, product_ids=found_ids)
 
-    response_payload = {
-        "ok": True,
-        "store_id": store_id,
-        "found": len(found_ids),
-        "missing_products": missing,
-        "items": out_data["items"],
-    }
+    response_payload = {"items": out_data["items"]}
 
-    set_cached(
-        cache_key,
-        {
-            "ok": True,
-            "mode": "get",
-            "store_id": store_id,
-            "found": len(found_ids),
-            "missing_products": missing,
-            "items": out_data["items"],
-        },
-        ttl_seconds=45,
-    )
+    set_cached(cache_key, response_payload, ttl_seconds=45)
 
     return response_payload
 
