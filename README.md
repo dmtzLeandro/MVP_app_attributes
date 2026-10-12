@@ -4,7 +4,7 @@
 
 # # Tiendanube Attributes App (MVP)
 
-Aplicación externa para Tiendanube que permite gestionar atributos de catálogo que no existen de forma nativa en la plataforma.
+Aplicación externa para Tiendanube que permite gestionar atributos y asignar campos personalizados a cada producto
 
 ----------------------------------------------------------------------------------------------------------------------------------------
 
